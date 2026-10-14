@@ -1,0 +1,234 @@
+/* ==========================================================================
+   PAGE: DASHBOARD
+   ========================================================================== */
+
+.dashboard-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* Quick Control Bar */
+.telematics-control-bar {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.system-status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+}
+
+.system-status-orb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background-color: var(--status-safe);
+  box-shadow: 0 0 10px var(--status-safe);
+  position: relative;
+}
+
+.system-status-orb.active {
+  animation: pulse-ring 2s infinite;
+}
+
+.system-status-orb.drowsy {
+  background-color: var(--status-danger);
+  box-shadow: 0 0 12px var(--status-danger);
+}
+
+.system-status-orb.idle {
+  background-color: var(--text-muted);
+  box-shadow: none;
+}
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
+  70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.system-status-text h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 0.15rem;
+}
+
+.system-status-text p {
+  font-size: 0.775rem;
+  color: var(--text-muted);
+}
+
+.telematics-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* Telematics Dashboard Grid */
+.telematics-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 1.5rem;
+}
+
+@media (max-width: 1024px) {
+  .telematics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Real-time Telemetry Monitor Card */
+.driver-status-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.hero-status-display {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  padding: 1.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero-status-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.status-label-small {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.status-state-large {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.status-state-large.state-safe {
+  color: var(--status-safe);
+}
+.status-state-large.state-warn {
+  color: var(--status-warn);
+}
+.status-state-large.state-danger {
+  color: var(--status-danger);
+  animation: textFlash 1s infinite;
+}
+
+@keyframes textFlash {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Metric Bars */
+.telematics-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.meter-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.meter-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.825rem;
+  font-weight: 600;
+}
+
+.meter-header span:first-child {
+  color: var(--text-secondary);
+}
+
+.meter-header span:last-child {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.meter-track {
+  height: 8px;
+  background: var(--bg-primary);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid var(--border-subtle);
+}
+
+.meter-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.meter-fill.fill-blue {
+  background: linear-gradient(90deg, #2563eb, #06b6d4);
+}
+.meter-fill.fill-green {
+  background: var(--status-safe);
+}
+.meter-fill.fill-red {
+  background: var(--status-danger);
+}
+
+/* Recent Events Table */
+.events-table-wrapper {
+  overflow-x: auto;
+}
+
+.events-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.events-table th {
+  text-align: left;
+  padding: 0.75rem 1rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-primary);
+  text-transform: uppercase;
+  font-size: 0.725rem;
+  letter-spacing: 0.05em;
+}
+
+.events-table td {
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.events-table tr:hover td {
+  background-color: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.events-table td.tabular-nums {
+  font-family: var(--font-mono);
+}
