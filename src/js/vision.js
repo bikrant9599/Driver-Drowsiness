@@ -475,6 +475,7 @@ class VisionEngine {
     appState.leftEar = Number(leftEAR.toFixed(2));
     appState.rightEar = Number(rightEAR.toFixed(2));
     appState.currentEar = Number(this.smoothedEar.toFixed(2));
+    appState.recordEarReading(this.smoothedEar);
 
     // 2. Mouth Aspect Ratio (MAR) for Yawning
     const rawMAR = computeMAR(pts);
@@ -524,6 +525,7 @@ class VisionEngine {
       appState.leftEar = Number(leftEAR.toFixed(2));
       appState.rightEar = Number(rightEAR.toFixed(2));
       appState.currentEar = Number(this.smoothedEar.toFixed(2));
+      appState.recordEarReading(this.smoothedEar);
 
       const rawMAR = computeMAR(pts);
       this.smoothedMar = 0.7 * rawMAR + 0.3 * this.smoothedMar;
@@ -621,7 +623,7 @@ class VisionEngine {
             soundManager.playCautionChime();
             appState.recordWarningEvent({
               type: "YAWN_DETECTED",
-              typeLabel: "Frequent Yawning",
+              typeLabel: "Fatigue Warning (Frequent Yawning)",
               duration: this.continuousYawnDuration,
               earValue: earVal,
               marValue: marVal,
@@ -659,7 +661,7 @@ class VisionEngine {
               soundManager.startDrowsinessAlert("DROWSY_NOD_OFF");
               appState.recordWarningEvent({
                 type: "DROWSY_NOD_OFF",
-                typeLabel: "Head Drop + Eye Closure",
+                typeLabel: "Critical Warning (Head Drop + Eye Closure)",
                 duration: this.continuousHeadDropDuration,
                 earValue: earVal,
                 marValue: marVal,
@@ -670,7 +672,7 @@ class VisionEngine {
               soundManager.playCautionChime();
               appState.recordWarningEvent({
                 type: "HEAD_DROP",
-                typeLabel: "Downward Head Position",
+                typeLabel: "Posture Warning (Downward Head Position)",
                 duration: this.continuousHeadDropDuration,
                 earValue: earVal,
                 marValue: marVal,
@@ -705,7 +707,7 @@ class VisionEngine {
         this.closureIncidentActive = true;
         appState.recordWarningEvent({
           type: "ALERT",
-          typeLabel: "Prolonged Eye Closure",
+          typeLabel: "Drowsiness Warning (Prolonged Eye Closure)",
           duration: this.consecutiveClosedSeconds,
           earValue: earVal,
           marValue: marVal,

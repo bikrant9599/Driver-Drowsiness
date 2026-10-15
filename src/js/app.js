@@ -332,4 +332,13 @@ class Application {
 document.addEventListener("DOMContentLoaded", () => {
   const app = new Application();
   app.init();
+
+  // Safely finalize and save running session on unexpected window close, refresh, or backgrounding
+  const handleUnexpectedTermination = () => {
+    if (appState.isMonitoring && !appState.sessionSaved) {
+      appState.stopSession();
+    }
+  };
+  window.addEventListener("beforeunload", handleUnexpectedTermination);
+  window.addEventListener("pagehide", handleUnexpectedTermination);
 });

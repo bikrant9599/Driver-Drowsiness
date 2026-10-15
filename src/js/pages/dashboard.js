@@ -2,7 +2,7 @@
    VIEW: DASHBOARD
    ========================================================================== */
 
-import { ICONS, formatDuration, formatDateTime, showToast, showConfirmModal } from "../utils.js";
+import { ICONS, formatDuration, formatDateTime, showToast, showConfirmModal, openSessionDetailsModal } from "../utils.js";
 import { appState } from "../state.js";
 import { soundManager } from "../audio.js";
 import { visionEngine } from "../vision.js";
@@ -33,6 +33,40 @@ export function renderDashboardPage() {
   const statusColorClass = getDashStatusClass(driverStatus);
   const statusBadgeClass = getDashBadgeClass(driverStatus);
 
+  // Compute actual stored data aggregates (zero if no data exists)
+  const storedSessions = appState.sessions || [];
+  const totalSessionsCount = storedSessions.length;
+  const totalDurationSec = storedSessions.reduce((acc, s) => acc + (s.durationSeconds || 0), 0);
+  const totalWarningsCount = storedSessions.reduce((acc, s) => acc + (s.warningEventsCount || 0), 0);
+  const realSessionsCount = storedSessions.filter((s) => !s.isSample).length;
+  const sampleSessionsCount = storedSessions.filter((s) => s.isSample).length;
+
+  // Warning event trends from real stored data
+  let closureWarningsCount = 0;
+  let yawnWarningsCount = 0;
+  let headDropWarningsCount = 0;
+  let combinedWarningsCount = 0;
+
+  storedSessions.forEach((s) => {
+    if (Array.isArray(s.events)) {
+      s.events.forEach((ev) => {
+        const type = ev.type || "";
+        const label = (ev.typeLabel || "").toLowerCase();
+        if (type === "DROWSY_NOD_OFF" || label.includes("head drop + eye closure")) {
+          combinedWarningsCount++;
+        } else if (type === "ALERT" || label.includes("eye closure") || label.includes("drowsiness")) {
+          closureWarningsCount++;
+        } else if (type === "YAWN_DETECTED" || label.includes("yawn")) {
+          yawnWarningsCount++;
+        } else if (type === "HEAD_DROP" || label.includes("head")) {
+          headDropWarningsCount++;
+        } else {
+          closureWarningsCount++;
+        }
+      });
+    }
+  });
+
   container.innerHTML = `
     <!-- Top Telematics Control Bar -->
     <div class="telematics-control-bar">
@@ -52,73 +86,76 @@ export function renderDashboardPage() {
       </div>
     </div>
 
-    <!-- 4 Telematics Metric Tiles -->
+    <!-- 4 Stored Analytics Metric Tiles (Connected to Real Stored Data) -->
     <div class="metric-grid">
-      <!-- Camera Status Tile -->
+      <!-- Total Monitoring Sessions Card -->
       <div class="metric-tile">
         <div class="metric-tile-header">
-          <span class="metric-tile-label">Camera Sensor</span>
-          <div class="metric-tile-icon">${ICONS.camera}</div>
+          <span class="metric-tile-label">Total Monitoring Sessions</span>
+          <div class="metric-tile-icon">${ICONS.reports}</div>
         </div>
         <div class="metric-tile-body">
-          <span class="metric-tile-value" id="dash-camera-stat">${appState.cameraConnected ? 'ONLINE' : driverStatus === 'CAMERA ERROR' ? 'ERROR' : 'STANDBY'}</span>
+          <span class="metric-tile-value tabular-nums" id="dash-stat-total-sessions">${totalSessionsCount}</span>
+          <span class="metric-tile-unit">sessions</span>
         </div>
         <div class="metric-tile-footer">
-          <span id="dash-camera-mode">Mode: ${appState.monitoringMode === 'sample' ? 'Sample Preview' : 'Hardware Stream'}</span>
-          <span class="badge ${appState.cameraConnected ? 'badge-safe' : driverStatus === 'CAMERA ERROR' ? 'badge-danger' : 'badge-neutral'}" id="dash-camera-badge">
-            <span class="badge-dot"></span> <span id="dash-camera-badge-text">${appState.cameraConnected ? 'Connected' : driverStatus === 'CAMERA ERROR' ? 'Error' : 'Offline'}</span>
+          <span id="dash-stat-sessions-breakdown">
+            ${totalSessionsCount === 0 ? 'No recorded sessions' : `${realSessionsCount} live &bull; ${sampleSessionsCount} benchmark`}
+          </span>
+          <span class="badge ${totalSessionsCount > 0 ? 'badge-safe' : 'badge-neutral'}">
+            ${totalSessionsCount > 0 ? 'Verified Logs' : 'Zero State'}
           </span>
         </div>
       </div>
 
-      <!-- Driver Attentiveness Status Tile -->
+      <!-- Total Monitoring Duration Card -->
       <div class="metric-tile">
         <div class="metric-tile-header">
-          <span class="metric-tile-label">Driver Status</span>
-          <div class="metric-tile-icon">${ICONS.user}</div>
-        </div>
-        <div class="metric-tile-body">
-          <span class="metric-tile-value ${statusColorClass}" id="dash-driver-stat">${driverStatus}</span>
-        </div>
-        <div class="metric-tile-footer">
-          <span>Face: <strong id="dash-face-stat">${appState.faceDetected ? 'Detected' : isLive ? 'Searching' : 'Offline'}</strong></span>
-          <span class="badge ${statusBadgeClass}" id="dash-driver-badge">
-            <span class="badge-dot"></span> <span id="dash-driver-badge-text">${driverStatus === 'ALERT' ? 'CRITICAL' : driverStatus === 'POSSIBLE DROWSINESS' ? 'WARNING' : driverStatus === 'ATTENTIVE' ? 'NORMAL' : 'STANDBY'}</span>
-          </span>
-        </div>
-      </div>
-
-      <!-- Warning Events Counter Tile -->
-      <div class="metric-tile">
-        <div class="metric-tile-header">
-          <span class="metric-tile-label">Drowsiness Events</span>
-          <div class="metric-tile-icon">${ICONS.alertTriangle}</div>
-        </div>
-        <div class="metric-tile-body">
-          <span class="metric-tile-value tabular-nums" id="dash-warnings-count">${appState.sessionWarningsCount}</span>
-          <span class="metric-tile-unit">alerts</span>
-        </div>
-        <div class="metric-tile-footer">
-          <span>Current Session Events</span>
-          <span class="badge ${appState.sessionWarningsCount > 0 ? 'badge-danger' : 'badge-safe'}">
-            ${appState.sessionWarningsCount > 0 ? 'Attention Needed' : 'Safe Zero'}
-          </span>
-        </div>
-      </div>
-
-      <!-- Monitoring Duration Tile -->
-      <div class="metric-tile">
-        <div class="metric-tile-header">
-          <span class="metric-tile-label">Session Duration</span>
+          <span class="metric-tile-label">Total Monitoring Duration</span>
           <div class="metric-tile-icon">${ICONS.dashboard}</div>
         </div>
         <div class="metric-tile-body">
-          <span class="metric-tile-value tabular-nums" id="dash-duration-timer">${formatDuration(appState.sessionDurationSec)}</span>
+          <span class="metric-tile-value tabular-nums" id="dash-stat-total-duration">${formatDuration(totalDurationSec)}</span>
         </div>
         <div class="metric-tile-footer">
-          <span>Active Telematics Clock</span>
-          <span class="badge ${isLive ? 'badge-info' : 'badge-neutral'}">
-            ${isLive ? (isPaused ? 'Paused' : 'Tracking') : 'Stopped'}
+          <span>Cumulative Monitored Time</span>
+          <span class="badge ${totalDurationSec > 0 ? 'badge-info' : 'badge-neutral'}">
+            ${totalDurationSec > 0 ? 'Telematics Clock' : '0 sec'}
+          </span>
+        </div>
+      </div>
+
+      <!-- Total Drowsiness Warnings Card -->
+      <div class="metric-tile">
+        <div class="metric-tile-header">
+          <span class="metric-tile-label">Drowsiness Warning Events</span>
+          <div class="metric-tile-icon">${ICONS.alertTriangle}</div>
+        </div>
+        <div class="metric-tile-body">
+          <span class="metric-tile-value tabular-nums" id="dash-stat-total-warnings" style="color: ${totalWarningsCount > 0 ? 'var(--status-danger)' : 'var(--status-safe)'};">${totalWarningsCount}</span>
+          <span class="metric-tile-unit">events</span>
+        </div>
+        <div class="metric-tile-footer">
+          <span>Audible Warnings Triggered</span>
+          <span class="badge ${totalWarningsCount > 0 ? 'badge-danger' : 'badge-safe'}">
+            ${totalWarningsCount > 0 ? 'Incidents Logged' : 'Safe Zero'}
+          </span>
+        </div>
+      </div>
+
+      <!-- Live Sensor & Driver State Card -->
+      <div class="metric-tile">
+        <div class="metric-tile-header">
+          <span class="metric-tile-label">Sensor & Telemetry Status</span>
+          <div class="metric-tile-icon">${ICONS.camera}</div>
+        </div>
+        <div class="metric-tile-body">
+          <span class="metric-tile-value ${statusColorClass}" id="dash-driver-stat" style="font-size: 1.4rem;">${driverStatus}</span>
+        </div>
+        <div class="metric-tile-footer">
+          <span>Face: <strong id="dash-face-stat">${appState.faceDetected ? 'Locked' : isLive ? 'Searching' : 'Standby'}</strong></span>
+          <span class="badge ${statusBadgeClass}" id="dash-driver-badge">
+            <span class="badge-dot"></span> <span id="dash-driver-badge-text">${isLive ? (driverStatus === 'ALERT' ? 'CRITICAL' : driverStatus === 'ATTENTIVE' ? 'NORMAL' : 'CAUTION') : 'STANDBY'}</span>
           </span>
         </div>
       </div>
@@ -221,19 +258,29 @@ export function renderDashboardPage() {
         </div>
       </div>
 
-      <!-- Right: System Safety Card -->
+      <!-- Right: System Safety & Current Session Info -->
       <div class="card" style="display: flex; flex-direction: column; justify-content: space-between;">
         <div>
           <div class="card-header">
             <div class="card-title">
-              ${ICONS.shieldCheck} Safety Parameters
+              ${ICONS.shieldCheck} Live Session Telemetry
             </div>
           </div>
 
           <div style="display: flex; flex-direction: column; gap: 0.875rem; font-size: 0.85rem;">
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.5rem;">
+              <span style="color: var(--text-secondary);">Current Session Duration</span>
+              <strong class="tabular-nums" id="dash-active-timer">${formatDuration(appState.sessionDurationSec)}</strong>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.5rem;">
+              <span style="color: var(--text-secondary);">Current Session Warnings</span>
+              <strong class="tabular-nums" id="dash-active-warnings">${appState.sessionWarningsCount}</strong>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.5rem;">
               <span style="color: var(--text-secondary);">Closure Trigger Threshold</span>
-              <strong class="tabular-nums">${appState.settings.drowsinessDurationSec.toFixed(1)} seconds</strong>
+              <strong class="tabular-nums">${appState.settings.drowsinessDurationSec.toFixed(1)}s</strong>
             </div>
 
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.5rem;">
@@ -247,23 +294,13 @@ export function renderDashboardPage() {
             </div>
 
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.5rem;">
-              <span style="color: var(--text-secondary);">Head Position Monitoring</span>
-              <strong>${appState.settings.headPoseEnabled ? `Enabled (Pitch ${appState.settings.headDropThreshold.toFixed(2)})` : 'Disabled'}</strong>
-            </div>
-
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.5rem;">
               <span style="color: var(--text-secondary);">Alarm Tone Profile</span>
-              <strong style="text-transform: capitalize;">${appState.settings.alarmSound}</strong>
-            </div>
-
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.5rem;">
-              <span style="color: var(--text-secondary);">Audio Volume</span>
-              <strong class="tabular-nums">${appState.settings.volume}%</strong>
+              <strong style="text-transform: capitalize;">${appState.settings.alarmSound} (${appState.settings.volume}%)</strong>
             </div>
           </div>
         </div>
 
-        <div style="margin-top: 1.5rem;">
+        <div style="margin-top: 1.5rem; display: flex; flex-direction: column; gap: 0.5rem;">
           <button class="btn btn-secondary" style="width: 100%;" id="dash-open-settings-btn">
             ${ICONS.settings} Modify System Settings
           </button>
@@ -271,15 +308,47 @@ export function renderDashboardPage() {
       </div>
     </div>
 
-    <!-- Recent Warning Events Table -->
+    <!-- Warning-Event Trends Card (Connected to Real Stored Data) -->
     <div class="card">
       <div class="card-header">
         <div class="card-title">
-          ${ICONS.alertTriangle} Recent Warning Events Log
+          ${ICONS.alertTriangle} Warning-Event Trends & Fatigue Breakdown
+        </div>
+        <span class="badge ${totalWarningsCount > 0 ? 'badge-warn' : 'badge-safe'}">
+          ${totalWarningsCount > 0 ? `${totalWarningsCount} Total Incidents` : 'Safe Zero Incidents'}
+        </span>
+      </div>
+
+      <div id="dash-trends-body">
+        ${renderWarningTrends(totalWarningsCount, closureWarningsCount, yawnWarningsCount, headDropWarningsCount, combinedWarningsCount)}
+      </div>
+    </div>
+
+    <!-- Recent Monitoring Sessions Card (Connected to Real Stored Data) -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          ${ICONS.reports} Recent Monitoring Sessions
         </div>
         <button class="btn btn-secondary btn-sm" id="dash-view-all-reports-btn">
-          ${ICONS.reports} View All Reports
+          ${ICONS.reports} View All Reports (${totalSessionsCount})
         </button>
+      </div>
+
+      <div id="dash-recent-sessions-container">
+        ${renderRecentSessionsTable(storedSessions)}
+      </div>
+    </div>
+
+    <!-- Live Session Warning Events Log Table -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          ${ICONS.bell} Active Session Warning Events Log
+        </div>
+        <span class="badge ${appState.sessionWarningsCount > 0 ? 'badge-danger' : 'badge-neutral'}">
+          ${appState.sessionWarningsCount} Session Alerts
+        </span>
       </div>
 
       <div class="events-table-wrapper">
@@ -287,7 +356,7 @@ export function renderDashboardPage() {
           <thead>
             <tr>
               <th>Timestamp</th>
-              <th>Incident Type</th>
+              <th>Incident Classification</th>
               <th>Duration</th>
               <th>Detected EAR</th>
               <th>Detected MAR</th>
@@ -302,6 +371,165 @@ export function renderDashboardPage() {
       </div>
     </div>
   `;
+
+  function renderWarningTrends(total, closure, yawn, headDrop, combined) {
+    if (total === 0) {
+      return `
+        <div class="empty-state" style="padding: 2.5rem 1.5rem;">
+          <div class="empty-state-icon" style="width: 52px; height: 52px;">${ICONS.shieldCheck}</div>
+          <h4 class="empty-state-title" style="font-size: 1.05rem;">No Drowsiness Warning Trends Available</h4>
+          <p class="empty-state-desc" style="font-size: 0.85rem; max-width: 440px; margin-bottom: 0;">
+            Zero drowsiness warning events or prolonged eye closures have been recorded across your stored monitoring sessions. Nominal driver vigilance has been consistently maintained.
+          </p>
+        </div>
+      `;
+    }
+
+    const closurePct = Math.round((closure / total) * 100);
+    const yawnPct = Math.round((yawn / total) * 100);
+    const headDropPct = Math.round((headDrop / total) * 100);
+    const combinedPct = Math.round((combined / total) * 100);
+
+    return `
+      <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+          <div style="background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 1rem;">
+            <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Prolonged Eye Closure</div>
+            <div style="font-size: 1.5rem; font-weight: 700; color: var(--status-danger);" class="tabular-nums">${closure}</div>
+            <div style="font-size: 0.75rem; color: var(--text-secondary);">${closurePct}% of fatigue events</div>
+          </div>
+
+          <div style="background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 1rem;">
+            <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Frequent Yawning (MAR)</div>
+            <div style="font-size: 1.5rem; font-weight: 700; color: var(--status-warn);" class="tabular-nums">${yawn}</div>
+            <div style="font-size: 0.75rem; color: var(--text-secondary);">${yawnPct}% of fatigue events</div>
+          </div>
+
+          <div style="background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 1rem;">
+            <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Downward Head Nod (Pitch)</div>
+            <div style="font-size: 1.5rem; font-weight: 700; color: var(--status-warn);" class="tabular-nums">${headDrop}</div>
+            <div style="font-size: 0.75rem; color: var(--text-secondary);">${headDropPct}% of fatigue events</div>
+          </div>
+
+          <div style="background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 1rem;">
+            <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Combined Microsleep Alert</div>
+            <div style="font-size: 1.5rem; font-weight: 700; color: var(--status-danger);" class="tabular-nums">${combined}</div>
+            <div style="font-size: 0.75rem; color: var(--text-secondary);">${combinedPct}% of fatigue events</div>
+          </div>
+        </div>
+
+        <!-- Trend Progress Bars -->
+        <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem;">
+          <div class="meter-row">
+            <div class="meter-header">
+              <span>Prolonged Eye Closures</span>
+              <span class="tabular-nums">${closure} events (${closurePct}%)</span>
+            </div>
+            <div class="meter-track">
+              <div class="meter-fill fill-red" style="width: ${closurePct}%;"></div>
+            </div>
+          </div>
+
+          <div class="meter-row">
+            <div class="meter-header">
+              <span>Yawning Incidents</span>
+              <span class="tabular-nums">${yawn} events (${yawnPct}%)</span>
+            </div>
+            <div class="meter-track">
+              <div class="meter-fill fill-green" style="width: ${yawnPct}%;"></div>
+            </div>
+          </div>
+
+          <div class="meter-row">
+            <div class="meter-header">
+              <span>Downward Head Nods</span>
+              <span class="tabular-nums">${headDrop} events (${headDropPct}%)</span>
+            </div>
+            <div class="meter-track">
+              <div class="meter-fill fill-blue" style="width: ${headDropPct}%;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderRecentSessionsTable(sessions) {
+    if (sessions.length === 0) {
+      return `
+        <div class="empty-state" style="padding: 3rem 1.5rem;">
+          <div class="empty-state-icon">${ICONS.reports}</div>
+          <h4 class="empty-state-title">No Monitoring Sessions Recorded</h4>
+          <p class="empty-state-desc">
+            Connect your webcam or initiate a benchmark simulation to capture real-time driver biometrics and build your session history.
+          </p>
+          <button class="btn btn-primary" id="dash-empty-start-btn">
+            ${ICONS.camera} Start Live Camera
+          </button>
+        </div>
+      `;
+    }
+
+    const recent5 = sessions.slice(0, 5);
+
+    return `
+      <div class="events-table-wrapper">
+        <table class="events-table">
+          <thead>
+            <tr>
+              <th>Session ID & Date</th>
+              <th>Mode</th>
+              <th>Duration</th>
+              <th>Warnings</th>
+              <th>Avg EAR</th>
+              <th>Safety Grade</th>
+              <th style="text-align: right;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${recent5
+              .map((s) => {
+                const grade = s.warningEventsCount === 0 ? "Grade A" : s.warningEventsCount <= 2 ? "Grade B" : "Grade C";
+                const gradeBadge = s.warningEventsCount === 0 ? "badge-safe" : s.warningEventsCount <= 2 ? "badge-warn" : "badge-danger";
+                return `
+                <tr>
+                  <td>
+                    <div>
+                      <div style="font-weight: 600; color: var(--text-primary);">${formatDateTime(s.startTime)}</div>
+                      <span style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono);">${s.id}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span class="badge ${s.isSample ? 'badge-neutral' : 'badge-info'}">
+                      ${s.isSample ? 'Benchmark Simulation' : 'Live Camera'}
+                    </span>
+                  </td>
+                  <td class="tabular-nums"><strong>${formatDuration(s.durationSeconds)}</strong></td>
+                  <td>
+                    <span class="badge ${s.warningEventsCount > 0 ? 'badge-danger' : 'badge-safe'} tabular-nums">
+                      ${s.warningEventsCount} ${s.warningEventsCount === 1 ? 'alert' : 'alerts'}
+                    </span>
+                  </td>
+                  <td class="tabular-nums">${s.avgEar || 0.28}</td>
+                  <td>
+                    <span class="badge ${gradeBadge}">
+                      <span class="badge-dot"></span> ${grade}
+                    </span>
+                  </td>
+                  <td style="text-align: right;">
+                    <button class="btn btn-secondary btn-sm inspect-dash-session-btn" data-id="${s.id}">
+                      Inspect
+                    </button>
+                  </td>
+                </tr>
+              `;
+              })
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
 
   function renderDashActionButtons(isMonitoring, isPausedState) {
     if (!isMonitoring) {
@@ -337,20 +565,21 @@ export function renderDashboardPage() {
   }
 
   function renderRecentEventsRows() {
-    if (appState.recentEvents.length === 0) {
+    if (appState.currentSessionEvents.length === 0 && appState.recentEvents.length === 0) {
       return `<tr>
         <td colspan="7" style="text-align: center; padding: 2rem; color: var(--text-muted);">
-          No drowsiness warning events recorded in this session. Driver vigilance is normal.
+          No drowsiness warning events recorded in this active session. Driver vigilance is normal.
         </td>
       </tr>`;
     }
-    return appState.recentEvents
+    const eventsToShow = appState.currentSessionEvents.length > 0 ? appState.currentSessionEvents : appState.recentEvents;
+    return eventsToShow
       .slice(0, 5)
       .map(
         (ev) => `
         <tr>
           <td class="tabular-nums">${ev.timestamp}</td>
-          <td><strong>${ev.typeLabel || (ev.type === 'ALERT' ? 'Prolonged Eye Closure' : ev.type.replace('_', ' '))}</strong></td>
+          <td><strong>${ev.typeLabel || (ev.type === 'ALERT' ? 'Prolonged Eye Closure' : ev.type.replace(/_/g, ' '))}</strong></td>
           <td class="tabular-nums">${ev.duration}</td>
           <td class="tabular-nums">${ev.ear !== undefined ? ev.ear : '-'}</td>
           <td class="tabular-nums">${ev.mar !== undefined ? ev.mar : '-'}</td>
@@ -387,11 +616,6 @@ export function renderDashboardPage() {
       orb.className = `system-status-orb ${curIsLive ? (curStatus === 'ALERT' ? 'drowsy' : 'active') : 'idle'}`;
     }
 
-    const camStat = container.querySelector("#dash-camera-stat");
-    if (camStat) {
-      camStat.textContent = appState.cameraConnected ? "ONLINE" : curStatus === "CAMERA ERROR" ? "ERROR" : "STANDBY";
-    }
-
     const driverStat = container.querySelector("#dash-driver-stat");
     if (driverStat) {
       driverStat.textContent = curStatus;
@@ -400,14 +624,18 @@ export function renderDashboardPage() {
 
     const faceStat = container.querySelector("#dash-face-stat");
     if (faceStat) {
-      faceStat.textContent = appState.faceDetected ? "Detected" : curIsLive ? "Searching" : "Offline";
+      faceStat.textContent = appState.faceDetected ? "Locked" : curIsLive ? "Searching" : "Standby";
     }
 
-    const warnCount = container.querySelector("#dash-warnings-count");
-    if (warnCount) warnCount.textContent = appState.sessionWarningsCount;
+    const activeTimer = container.querySelector("#dash-active-timer");
+    if (activeTimer) {
+      activeTimer.textContent = formatDuration(appState.sessionDurationSec);
+    }
 
-    const durTimer = container.querySelector("#dash-duration-timer");
-    if (durTimer) durTimer.textContent = formatDuration(appState.sessionDurationSec);
+    const activeWarns = container.querySelector("#dash-active-warnings");
+    if (activeWarns) {
+      activeWarns.textContent = appState.sessionWarningsCount;
+    }
 
     const largeStatus = container.querySelector("#dash-large-status");
     if (largeStatus) {
@@ -426,7 +654,7 @@ export function renderDashboardPage() {
           : "MONITORING STANDBY";
     }
 
-    // Meters
+    // Biometric meters
     const earVal = container.querySelector("#dash-ear-val");
     if (earVal) earVal.textContent = `${appState.currentEar.toFixed(2)} (Safe > ${appState.settings.earThreshold.toFixed(2)})`;
 
@@ -455,11 +683,19 @@ export function renderDashboardPage() {
     if (tbody) tbody.innerHTML = renderRecentEventsRows();
   }, 100);
 
-  // Button handlers
+  // Bind Buttons
   const bindDashButtons = () => {
     const startLiveBtn = container.querySelector("#dash-start-live-btn");
     if (startLiveBtn) {
       startLiveBtn.onclick = () => {
+        appState.startSession("real");
+        appState.setPage("live");
+      };
+    }
+
+    const emptyStartBtn = container.querySelector("#dash-empty-start-btn");
+    if (emptyStartBtn) {
+      emptyStartBtn.onclick = () => {
         appState.startSession("real");
         appState.setPage("live");
       };
@@ -495,7 +731,7 @@ export function renderDashboardPage() {
       stopBtn.onclick = () => {
         visionEngine.stopCamera();
         appState.stopSession();
-        showToast("Session Saved", "Monitoring session ended and saved.", "safe");
+        showToast("Session Saved", "Monitoring session ended and logged to reports.", "safe");
         appState.setPage("dashboard");
       };
     }
@@ -507,6 +743,17 @@ export function renderDashboardPage() {
         showToast("Alarm Test", `Sounding ${appState.settings.alarmSound} tone alert.`, "info");
       };
     }
+
+    // Inspect recent session buttons
+    container.querySelectorAll(".inspect-dash-session-btn").forEach((btn) => {
+      btn.onclick = () => {
+        const id = btn.dataset.id;
+        const session = storedSessions.find((s) => s.id === id);
+        if (session) {
+          openSessionDetailsModal(session);
+        }
+      };
+    });
   };
 
   bindDashButtons();

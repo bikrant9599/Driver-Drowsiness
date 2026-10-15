@@ -29,55 +29,6 @@ const DEFAULT_SETTINGS = {
   headDropDurationSec: 1.2
 };
 
-// Initial realistic sample sessions clearly labeled as sample previews
-const INITIAL_SAMPLE_SESSIONS = [
-  {
-    id: "sess_sample_101",
-    isSample: true,
-    startTime: new Date(Date.now() - 3600000 * 24 * 2).toISOString(),
-    durationSeconds: 2480, // 41 mins
-    warningEventsCount: 2,
-    avgEar: 0.28,
-    maxClosureSec: 2.4,
-    status: "Completed",
-    notes: "Highway Night Benchmark",
-    events: [
-      { timestamp: "14:22:10", type: "ALERT", typeLabel: "Prolonged Eye Closure", duration: "2.3s", ear: 0.17, mar: 0.18, severity: "Critical" },
-      { timestamp: "14:38:45", type: "ALERT", typeLabel: "Prolonged Eye Closure", duration: "2.4s", ear: 0.18, mar: 0.19, severity: "Critical" }
-    ]
-  },
-  {
-    id: "sess_sample_102",
-    isSample: true,
-    startTime: new Date(Date.now() - 3600000 * 18).toISOString(),
-    durationSeconds: 1540, // 25 mins
-    warningEventsCount: 1,
-    avgEar: 0.31,
-    maxClosureSec: 0.6,
-    status: "Completed",
-    notes: "Daytime Urban Test",
-    events: [
-      { timestamp: "10:14:05", type: "YAWN_DETECTED", typeLabel: "Frequent Yawning", duration: "2.1s", ear: 0.29, mar: 0.68, severity: "Caution" }
-    ]
-  },
-  {
-    id: "sess_sample_103",
-    isSample: true,
-    startTime: new Date(Date.now() - 3600000 * 5).toISOString(),
-    durationSeconds: 3720, // 62 mins
-    warningEventsCount: 3,
-    avgEar: 0.26,
-    maxClosureSec: 2.8,
-    status: "Completed",
-    notes: "Long Haul Fatigue Benchmark",
-    events: [
-      { timestamp: "19:10:02", type: "HEAD_DROP", typeLabel: "Downward Head Nod", duration: "1.4s", ear: 0.23, mar: 0.21, severity: "Caution" },
-      { timestamp: "19:28:14", type: "ALERT", typeLabel: "Prolonged Eye Closure", duration: "2.7s", ear: 0.16, mar: 0.22, severity: "Critical" },
-      { timestamp: "19:45:50", type: "DROWSY_NOD_OFF", typeLabel: "Head Drop + Eye Closure", duration: "2.8s", ear: 0.15, mar: 0.25, severity: "Critical" }
-    ]
-  }
-];
-
 class StateManager {
   constructor() {
     this.currentPage = "home";
@@ -88,6 +39,7 @@ class StateManager {
     // Live Monitoring Telemetry State
     this.isMonitoring = false;
     this.isPaused = false;
+    this.sessionSaved = false;
     this.monitoringMode = "real"; // "real" (webcam) or "sample" (benchmark simulation)
     this.cameraConnected = false;
     this.driverStatus = "IDLE"; // IDLE, ATTENTIVE, POSSIBLE DROWSINESS, ALERT, FACE NOT DETECTED, CAMERA ERROR, PAUSED
@@ -116,9 +68,12 @@ class StateManager {
     this.headDropDurationSec = 0.0;
 
     // Session Statistics
+    this.sessionStartTime = null;
+    this.sessionEndTime = null;
     this.sessionDurationSec = 0;
     this.sessionWarningsCount = 0;
     this.currentSessionEvents = [];
+    this.sessionEarHistory = [];
     this.currentSessionId = null;
     this.recentEvents = [];
 
@@ -130,33 +85,128 @@ class StateManager {
       const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
       return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : { ...DEFAULT_SETTINGS };
     } catch (e) {
+      console.warn("Corrupted settings found, loading defaults:", e);
       return { ...DEFAULT_SETTINGS };
     }
   }
 
   saveSettings(newSettings) {
     this.settings = { ...this.settings, ...newSettings };
-    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(this.settings));
+    try {
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(this.settings));
+    } catch (e) {
+      console.error("Failed to save settings:", e);
+    }
     this.notify("settings");
+  }
+
+  /**
+   * Validates and sanitizes a single stored session record
+   */
+  sanitizeSessionRecord(raw) {
+    if (!raw || typeof raw !== "object") return null;
+
+    // Ensure session ID is valid string
+    const id = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : `sess_${Date.now()}`;
+    const isSample = Boolean(raw.isSample);
+
+    // Validate timestamps
+    let startTime = raw.startTime;
+    if (!startTime || typeof startTime !== "string" || isNaN(Date.parse(startTime))) {
+      startTime = new Date().toISOString();
+    }
+
+    const durationSeconds = typeof raw.durationSeconds === "number" && !isNaN(raw.durationSeconds) && raw.durationSeconds >= 0
+      ? Math.round(raw.durationSeconds)
+      : 0;
+
+    let endTime = raw.endTime;
+    if (!endTime || typeof endTime !== "string" || isNaN(Date.parse(endTime))) {
+      endTime = new Date(new Date(startTime).getTime() + durationSeconds * 1000).toISOString();
+    }
+
+    // Validate warning counts and events
+    const rawEvents = Array.isArray(raw.events) ? raw.events : [];
+    const events = rawEvents
+      .filter((ev) => ev && typeof ev === "object")
+      .map((ev, idx) => ({
+        id: typeof ev.id === "string" ? ev.id : `ev_${idx}`,
+        timestamp: typeof ev.timestamp === "string" ? ev.timestamp : "00:00:00",
+        isoTimestamp: typeof ev.isoTimestamp === "string" ? ev.isoTimestamp : startTime,
+        type: typeof ev.type === "string" ? ev.type : "ALERT",
+        typeLabel: typeof ev.typeLabel === "string" ? ev.typeLabel : "Drowsiness Warning",
+        duration: typeof ev.duration === "string" ? ev.duration : typeof ev.duration === "number" ? `${ev.duration.toFixed(1)}s` : "0.0s",
+        detectionDurationSec: typeof ev.detectionDurationSec === "number" ? ev.detectionDurationSec : parseFloat(ev.duration) || 0,
+        ear: typeof ev.ear === "number" && !isNaN(ev.ear) ? Number(ev.ear.toFixed(2)) : 0.2,
+        mar: typeof ev.mar === "number" && !isNaN(ev.mar) ? Number(ev.mar.toFixed(2)) : 0.2,
+        severity: typeof ev.severity === "string" ? ev.severity : "Warning",
+        isSample: Boolean(ev.isSample)
+      }));
+
+    const warningEventsCount = typeof raw.warningEventsCount === "number" && !isNaN(raw.warningEventsCount)
+      ? Math.max(0, raw.warningEventsCount)
+      : events.length;
+
+    const avgEar = typeof raw.avgEar === "number" && !isNaN(raw.avgEar)
+      ? Number(raw.avgEar.toFixed(2))
+      : 0.28;
+
+    const blinkCount = typeof raw.blinkCount === "number" && !isNaN(raw.blinkCount) ? raw.blinkCount : 0;
+    const yawnCount = typeof raw.yawnCount === "number" && !isNaN(raw.yawnCount) ? raw.yawnCount : 0;
+    const status = typeof raw.status === "string" ? raw.status : "Completed";
+    const notes = typeof raw.notes === "string" ? raw.notes : isSample ? "Benchmark Simulation Test" : "Live Camera Driver Session";
+
+    return {
+      id,
+      isSample,
+      startTime,
+      endTime,
+      durationSeconds,
+      warningEventsCount,
+      avgEar,
+      blinkCount,
+      yawnCount,
+      status,
+      notes,
+      events
+    };
   }
 
   loadSessions() {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.SESSIONS);
-      return saved ? JSON.parse(saved) : [...INITIAL_SAMPLE_SESSIONS];
+      if (!saved) return [];
+      const parsed = JSON.parse(saved);
+      if (!Array.isArray(parsed)) return [];
+
+      // Filter out any legacy dummy sample placeholders from earlier builds (e.g. sess_sample_101)
+      const valid = parsed
+        .map((item) => this.sanitizeSessionRecord(item))
+        .filter((sess) => sess !== null && !sess.id.startsWith("sess_sample_"));
+
+      return valid;
     } catch (e) {
-      return [...INITIAL_SAMPLE_SESSIONS];
+      console.warn("Corrupted session records in storage, resetting cleanly:", e);
+      return [];
     }
   }
 
   saveSessions() {
-    localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(this.sessions));
+    try {
+      localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(this.sessions));
+    } catch (e) {
+      console.error("Failed to persist sessions to localStorage:", e);
+    }
     this.notify("sessions");
   }
 
   setTheme(theme) {
     this.theme = theme;
-    localStorage.setItem(STORAGE_KEYS.THEME, theme);
+    try {
+      localStorage.setItem(STORAGE_KEYS.THEME, theme);
+    } catch (e) {
+      // ignore
+    }
     document.documentElement.setAttribute("data-theme", theme);
     this.notify("theme");
   }
@@ -185,12 +235,16 @@ class StateManager {
   startSession(mode = "real") {
     this.isMonitoring = true;
     this.isPaused = false;
+    this.sessionSaved = false;
     this.monitoringMode = mode;
     this.driverStatus = "ATTENTIVE";
     this.activeWarningType = "";
+    this.sessionStartTime = new Date().toISOString();
+    this.sessionEndTime = null;
     this.sessionDurationSec = 0;
     this.sessionWarningsCount = 0;
     this.currentSessionEvents = [];
+    this.sessionEarHistory = [];
     this.closureSeconds = 0.0;
     this.blinkCount = 0;
     this.yawnCount = 0;
@@ -198,6 +252,15 @@ class StateManager {
     this.isHeadDrop = false;
     this.currentSessionId = `sess_${Date.now()}`;
     this.notify("session_started");
+  }
+
+  recordEarReading(earVal) {
+    if (!this.isMonitoring || this.isPaused || typeof earVal !== "number" || isNaN(earVal)) return;
+    this.sessionEarHistory.push(earVal);
+    if (this.sessionEarHistory.length > 3600) {
+      // Keep memory bounded for long sessions
+      this.sessionEarHistory.shift();
+    }
   }
 
   pauseSession() {
@@ -223,18 +286,24 @@ class StateManager {
     this.isYawning = false;
     this.isHeadDrop = false;
     this.currentSessionEvents = [];
+    this.sessionEarHistory = [];
     this.activeWarningType = "";
     this.notify("session_reset");
   }
 
   recordWarningEvent({ type = "ALERT", typeLabel = "Prolonged Eye Closure", duration = 0, earValue, marValue, severity = "Warning" }) {
-    const timeStr = new Date().toLocaleTimeString("en-US", { hour12: false });
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString("en-US", { hour12: false });
+    const durSec = typeof duration === "number" ? duration : parseFloat(duration) || 0;
+
     const event = {
       id: `ev_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       timestamp: timeStr,
+      isoTimestamp: now.toISOString(),
       type: type,
       typeLabel: typeLabel,
-      duration: typeof duration === "number" ? `${duration.toFixed(1)}s` : duration,
+      duration: `${durSec.toFixed(1)}s`,
+      detectionDurationSec: Number(durSec.toFixed(2)),
       ear: earValue !== undefined ? Number(earValue.toFixed(2)) : Number(this.currentEar.toFixed(2)),
       mar: marValue !== undefined ? Number(marValue.toFixed(2)) : Number(this.currentMar.toFixed(2)),
       severity: severity, // "Caution" (Yellow), "Warning" (Orange), "Critical" (Red)
@@ -244,29 +313,44 @@ class StateManager {
     this.sessionWarningsCount++;
     this.currentSessionEvents.push(event);
     this.recentEvents.unshift(event);
-    if (this.recentEvents.length > 25) this.recentEvents.pop();
+    if (this.recentEvents.length > 30) this.recentEvents.pop();
 
     this.notify("warning_recorded");
     return event;
   }
 
   stopSession() {
-    if (!this.isMonitoring) return;
+    // Prevent duplicate saves if already stopped or saved
+    if (!this.isMonitoring || this.sessionSaved) return;
 
-    if (this.sessionDurationSec > 5) {
+    this.sessionSaved = true;
+    this.sessionEndTime = new Date().toISOString();
+
+    // Only save session if it has genuine monitoring duration (>= 1 sec) or recorded events
+    if (this.sessionDurationSec >= 1 || this.currentSessionEvents.length > 0) {
+      let avgEar = 0.28;
+      if (this.sessionEarHistory.length > 0) {
+        const sum = this.sessionEarHistory.reduce((a, b) => a + b, 0);
+        avgEar = Number((sum / this.sessionEarHistory.length).toFixed(2));
+      } else if (this.currentEar) {
+        avgEar = Number(this.currentEar.toFixed(2));
+      }
+
       const newSession = {
         id: this.currentSessionId || `sess_${Date.now()}`,
         isSample: this.monitoringMode === "sample",
-        startTime: new Date().toISOString(),
+        startTime: this.sessionStartTime || new Date(Date.now() - this.sessionDurationSec * 1000).toISOString(),
+        endTime: this.sessionEndTime,
         durationSeconds: this.sessionDurationSec,
         warningEventsCount: this.sessionWarningsCount,
-        avgEar: Number(this.currentEar.toFixed(2)),
+        avgEar: avgEar,
         blinkCount: this.blinkCount,
         yawnCount: this.yawnCount,
         status: "Completed",
         notes: this.monitoringMode === "sample" ? "Benchmark Simulation Test" : "Live Camera Driver Session",
         events: [...this.currentSessionEvents]
       };
+
       this.sessions.unshift(newSession);
       this.saveSessions();
     }
@@ -284,14 +368,20 @@ class StateManager {
 
   clearSessions() {
     this.sessions = [];
+    this.recentEvents = [];
     this.saveSessions();
     this.notify("sessions_cleared");
   }
 
   resetAll() {
     this.settings = { ...DEFAULT_SETTINGS };
-    localStorage.removeItem(STORAGE_KEYS.SETTINGS);
-    this.sessions = [...INITIAL_SAMPLE_SESSIONS];
+    try {
+      localStorage.removeItem(STORAGE_KEYS.SETTINGS);
+    } catch (e) {
+      // ignore
+    }
+    this.sessions = [];
+    this.recentEvents = [];
     this.saveSessions();
     this.notify("reset_all");
   }

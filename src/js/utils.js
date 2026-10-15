@@ -174,6 +174,105 @@ export function showContentModal({ title, contentHtml, maxWidth = "560px" }) {
   };
 }
 
+/**
+ * Open detailed inspection modal for a session with statistics, timeline, and export actions
+ */
+export function openSessionDetailsModal(session) {
+  if (!session) return;
+
+  const eventsList = session.events && session.events.length > 0
+    ? session.events
+        .map(
+          (ev, idx) => `
+          <div class="timeline-item">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <span class="timeline-time">${ev.timestamp}</span>
+              <div>
+                <strong>${ev.typeLabel || (ev.type === 'ALERT' ? 'Prolonged Eye Closure' : ev.type.replace(/_/g, ' '))}</strong>
+                <div style="font-size: 0.725rem; color: var(--text-muted);">Duration: ${ev.duration} &bull; EAR: ${ev.ear !== undefined ? ev.ear : '-'} &bull; MAR: ${ev.mar !== undefined ? ev.mar : '-'}</div>
+              </div>
+            </div>
+            <span class="badge ${ev.severity === 'Critical' ? 'badge-danger' : ev.severity === 'Caution' ? 'badge-warn' : 'badge-danger'}">${ev.severity || 'Warning'}</span>
+          </div>
+        `
+        )
+        .join("")
+    : `<p style="text-align: center; color: var(--text-muted); padding: 1.5rem 0;">No drowsiness incidents or prolonged eye closures recorded during this transit session.</p>`;
+
+  const grade = session.warningEventsCount === 0 ? "Grade A (Optimal)" : session.warningEventsCount <= 2 ? "Grade B (Moderate)" : "Grade C (Fatigued)";
+  const gradeColor = session.warningEventsCount === 0 ? "#10b981" : session.warningEventsCount <= 2 ? "#f59e0b" : "#ef4444";
+
+  const modalHtml = `
+    <div class="report-modal-content">
+      <div class="session-stat-pills" style="grid-template-columns: repeat(4, 1fr);">
+        <div class="session-stat-pill">
+          <div class="val tabular-nums">${formatDuration(session.durationSeconds)}</div>
+          <div class="lbl">Transit Duration</div>
+        </div>
+        <div class="session-stat-pill">
+          <div class="val tabular-nums" style="color: ${session.warningEventsCount > 0 ? '#ef4444' : '#10b981'};">${session.warningEventsCount}</div>
+          <div class="lbl">Fatigue Alerts</div>
+        </div>
+        <div class="session-stat-pill">
+          <div class="val tabular-nums">${session.avgEar || 0.28}</div>
+          <div class="lbl">Average EAR</div>
+        </div>
+        <div class="session-stat-pill">
+          <div class="val" style="color: ${gradeColor}; font-size: 1rem; padding-top: 0.25rem;">${grade}</div>
+          <div class="lbl">Safety Grade</div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; font-size: 0.825rem; background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 0.875rem;">
+        <div><strong>Session ID:</strong> <span style="font-family: var(--font-mono); color: var(--text-muted);">${session.id}</span></div>
+        <div><strong>Classification:</strong> ${session.isSample ? 'Benchmark Simulation' : 'Live Camera Hardware'}</div>
+        <div><strong>Start Time:</strong> ${formatDateTime(session.startTime)}</div>
+        <div><strong>End Time:</strong> ${session.endTime ? formatDateTime(session.endTime) : 'N/A'}</div>
+        <div><strong>Yawns Counted:</strong> ${session.yawnCount || 0}</div>
+        <div><strong>Blinks Counted:</strong> ${session.blinkCount || 0}</div>
+      </div>
+
+      <div>
+        <h4 style="font-size: 0.95rem; margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: space-between;">
+          <span style="display: flex; align-items: center; gap: 0.5rem;">${ICONS.alertTriangle} Chronological Event History (${session.warningEventsCount})</span>
+        </h4>
+        <div class="events-timeline">
+          ${eventsList}
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 0.75rem; padding-top: 0.5rem; border-top: 1px solid var(--border-subtle);">
+        <button class="btn btn-secondary btn-sm" id="modal-export-csv-btn">
+          ${ICONS.download} Download CSV
+        </button>
+        <button class="btn btn-primary btn-sm" id="modal-export-pdf-btn">
+          ${ICONS.download} Download PDF
+        </button>
+      </div>
+    </div>
+  `;
+
+  showContentModal({
+    title: `Session Report: ${session.notes || session.id}`,
+    contentHtml: modalHtml,
+    maxWidth: "620px"
+  });
+
+  const overlay = document.getElementById("global-modal-overlay");
+  if (overlay) {
+    const csvBtn = overlay.querySelector("#modal-export-csv-btn");
+    if (csvBtn) {
+      csvBtn.onclick = () => exportSessionToCSV(session);
+    }
+    const pdfBtn = overlay.querySelector("#modal-export-pdf-btn");
+    if (pdfBtn) {
+      pdfBtn.onclick = () => exportSessionToPDF(session);
+    }
+  }
+}
+
+import { jsPDF } from "jspdf";
+
 /* Export data to CSV */
 export function exportToCSV(filename, rows) {
   if (!rows || !rows.length) {
@@ -216,4 +315,542 @@ export function exportToJSON(filename, data) {
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
   showToast("Report Exported", `Downloaded ${filename}.json`, "safe");
+}
+
+/**
+ * Functional CSV export for a single monitoring session with all required fields:
+ * Session ID, start/end times, monitoring duration, warning count, timestamps, types, durations
+ */
+export function exportSessionToCSV(session) {
+  if (!session) {
+    showToast("Export Failed", "No session data to export", "warn");
+    return;
+  }
+  const filename = `vigildrive_session_${session.id}`;
+
+  let rows = [];
+  if (session.events && session.events.length > 0) {
+    rows = session.events.map((ev, index) => ({
+      Session_ID: session.id,
+      Session_Type: session.isSample ? "Benchmark Simulation" : "Live Camera Hardware",
+      Session_Start_Time: session.startTime,
+      Session_End_Time: session.endTime || "N/A",
+      Monitoring_Duration: formatDuration(session.durationSeconds),
+      Duration_Seconds: session.durationSeconds,
+      Total_Warnings_Count: session.warningEventsCount,
+      Event_Index: index + 1,
+      Warning_Timestamp: ev.timestamp,
+      Warning_Type: ev.typeLabel || ev.type,
+      Detection_Duration: ev.duration || "N/A",
+      EAR_Value: ev.ear !== undefined ? ev.ear : "N/A",
+      MAR_Value: ev.mar !== undefined ? ev.mar : "N/A",
+      Severity: ev.severity || "Warning"
+    }));
+  } else {
+    rows = [{
+      Session_ID: session.id,
+      Session_Type: session.isSample ? "Benchmark Simulation" : "Live Camera Hardware",
+      Session_Start_Time: session.startTime,
+      Session_End_Time: session.endTime || "N/A",
+      Monitoring_Duration: formatDuration(session.durationSeconds),
+      Duration_Seconds: session.durationSeconds,
+      Total_Warnings_Count: 0,
+      Event_Index: "N/A",
+      Warning_Timestamp: "None",
+      Warning_Type: "None (Clean Attentive Session)",
+      Detection_Duration: "0.0s",
+      EAR_Value: session.avgEar || 0.28,
+      MAR_Value: "N/A",
+      Severity: "Optimal"
+    }];
+  }
+
+  exportToCSV(filename, rows);
+}
+
+/**
+ * Functional CSV export for all monitoring sessions with detailed event records
+ */
+export function exportAllSessionsToCSV(sessions) {
+  if (!sessions || sessions.length === 0) {
+    showToast("Export Failed", "No session records available to export", "warn");
+    return;
+  }
+  const filename = `vigildrive_all_sessions_${Date.now()}`;
+  const rows = [];
+
+  sessions.forEach((session) => {
+    if (session.events && session.events.length > 0) {
+      session.events.forEach((ev, idx) => {
+        rows.push({
+          Session_ID: session.id,
+          Session_Type: session.isSample ? "Benchmark Simulation" : "Live Camera Hardware",
+          Session_Start_Time: session.startTime,
+          Session_End_Time: session.endTime || "N/A",
+          Monitoring_Duration: formatDuration(session.durationSeconds),
+          Duration_Seconds: session.durationSeconds,
+          Total_Warnings_Count: session.warningEventsCount,
+          Event_Index: idx + 1,
+          Warning_Timestamp: ev.timestamp,
+          Warning_Type: ev.typeLabel || ev.type,
+          Detection_Duration: ev.duration || "N/A",
+          EAR_Value: ev.ear !== undefined ? ev.ear : "N/A",
+          MAR_Value: ev.mar !== undefined ? ev.mar : "N/A",
+          Severity: ev.severity || "Warning"
+        });
+      });
+    } else {
+      rows.push({
+        Session_ID: session.id,
+        Session_Type: session.isSample ? "Benchmark Simulation" : "Live Camera Hardware",
+        Session_Start_Time: session.startTime,
+        Session_End_Time: session.endTime || "N/A",
+        Monitoring_Duration: formatDuration(session.durationSeconds),
+        Duration_Seconds: session.durationSeconds,
+        Total_Warnings_Count: 0,
+        Event_Index: "N/A",
+        Warning_Timestamp: "None",
+        Warning_Type: "None (Clean Attentive Session)",
+        Detection_Duration: "0.0s",
+        EAR_Value: session.avgEar || 0.28,
+        MAR_Value: "N/A",
+        Severity: "Optimal"
+      });
+    }
+  });
+
+  exportToCSV(filename, rows);
+}
+
+/**
+ * Generates and downloads a clean, professional PDF telematics report for a single session
+ */
+export function exportSessionToPDF(session) {
+  if (!session) {
+    showToast("Export Failed", "No session data to export", "warn");
+    return;
+  }
+
+  try {
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    let currentY = 18;
+
+    // Header Background
+    doc.setFillColor(15, 23, 42); // slate-900
+    doc.rect(0, 0, pageWidth, 26, "F");
+
+    // Title
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.setTextColor(255, 255, 255);
+    doc.text("VIGILDRIVE AI — DRIVER DROWSINESS TELEMATICS REPORT", 14, 11);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(148, 163, 184); // slate-400
+    doc.text("Automotive Biometric Telemetry & Drowsiness Incident Audit Log", 14, 18);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, pageWidth - 14, 18, { align: "right" });
+
+    currentY = 34;
+
+    // Session Overview Card
+    doc.setFillColor(248, 250, 252); // slate-50
+    doc.setDrawColor(226, 232, 240); // slate-200
+    doc.roundedRect(14, currentY, pageWidth - 28, 48, 2.5, 2.5, "FD");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text("Session Metadata & Biometric Summary", 20, currentY + 7);
+
+    // Columns of metadata
+    doc.setFontSize(8.5);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+
+    const col1X = 20;
+    const col2X = 82;
+    const col3X = 142;
+    let metaY = currentY + 15;
+
+    // Col 1
+    doc.text("Session ID:", col1X, metaY);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(15, 23, 42);
+    doc.text(String(session.id), col1X + 22, metaY);
+
+    metaY += 6.5;
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text("Start Time:", col1X, metaY);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(15, 23, 42);
+    doc.text(formatDateTime(session.startTime), col1X + 22, metaY);
+
+    metaY += 6.5;
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text("End Time:", col1X, metaY);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(15, 23, 42);
+    doc.text(session.endTime ? formatDateTime(session.endTime) : "N/A", col1X + 22, metaY);
+
+    metaY += 6.5;
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text("Duration:", col1X, metaY);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(15, 23, 42);
+    doc.text(`${formatDuration(session.durationSeconds)} (${session.durationSeconds}s)`, col1X + 22, metaY);
+
+    // Col 2
+    metaY = currentY + 15;
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text("Session Mode:", col2X, metaY);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(15, 23, 42);
+    doc.text(session.isSample ? "Benchmark Simulation" : "Live Camera Hardware", col2X + 24, metaY);
+
+    metaY += 6.5;
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text("Average EAR:", col2X, metaY);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(15, 23, 42);
+    doc.text(String(session.avgEar || 0.28), col2X + 24, metaY);
+
+    metaY += 6.5;
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text("Yawns Counted:", col2X, metaY);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(15, 23, 42);
+    doc.text(String(session.yawnCount || 0), col2X + 24, metaY);
+
+    metaY += 6.5;
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text("Blinks Counted:", col2X, metaY);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(15, 23, 42);
+    doc.text(String(session.blinkCount || 0), col2X + 24, metaY);
+
+    // Col 3
+    metaY = currentY + 15;
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text("Total Warnings:", col3X, metaY);
+    doc.setFont("helvetica", "bold");
+    const warnColor = session.warningEventsCount > 0 ? [220, 38, 38] : [16, 185, 129];
+    doc.setTextColor(warnColor[0], warnColor[1], warnColor[2]);
+    doc.text(String(session.warningEventsCount), col3X + 26, metaY);
+
+    metaY += 6.5;
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text("Safety Rating:", col3X, metaY);
+    doc.setFont("helvetica", "bold");
+    const grade = session.warningEventsCount === 0 ? "Grade A (Optimal)" : session.warningEventsCount <= 2 ? "Grade B (Moderate)" : "Grade C (Fatigued)";
+    doc.setTextColor(warnColor[0], warnColor[1], warnColor[2]);
+    doc.text(grade, col3X + 26, metaY);
+
+    metaY += 6.5;
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text("Transit Status:", col3X, metaY);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(15, 23, 42);
+    doc.text(session.status || "Completed", col3X + 26, metaY);
+
+    currentY += 56;
+
+    // Chronological Incident History Section
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`Chronological Event History (${session.warningEventsCount} recorded warnings)`, 14, currentY);
+
+    currentY += 4.5;
+
+    // Events Table Header
+    doc.setFillColor(30, 41, 59); // slate-800
+    doc.rect(14, currentY, pageWidth - 28, 7.5, "F");
+
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+
+    const thIdx = 17;
+    const thTime = 26;
+    const thType = 54;
+    const thDur = 114;
+    const thEar = 138;
+    const thMar = 158;
+    const thSev = 178;
+
+    doc.text("#", thIdx, currentY + 5);
+    doc.text("Timestamp", thTime, currentY + 5);
+    doc.text("Incident Classification", thType, currentY + 5);
+    doc.text("Duration", thDur, currentY + 5);
+    doc.text("EAR", thEar, currentY + 5);
+    doc.text("MAR", thMar, currentY + 5);
+    doc.text("Severity", thSev, currentY + 5);
+
+    currentY += 7.5;
+
+    const events = session.events && session.events.length > 0 ? session.events : [];
+
+    if (events.length === 0) {
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(226, 232, 240);
+      doc.rect(14, currentY, pageWidth - 28, 12, "FD");
+
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(8.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text("No drowsiness warnings or prolonged eye closures recorded. Optimal driver vigilance maintained.", 20, currentY + 7.5);
+      currentY += 16;
+    } else {
+      events.forEach((ev, idx) => {
+        // Page overflow protection
+        if (currentY > pageHeight - 26) {
+          doc.addPage();
+          currentY = 16;
+
+          // Redraw table header
+          doc.setFillColor(30, 41, 59);
+          doc.rect(14, currentY, pageWidth - 28, 7.5, "F");
+          doc.setFontSize(7.5);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(255, 255, 255);
+          doc.text("#", thIdx, currentY + 5);
+          doc.text("Timestamp", thTime, currentY + 5);
+          doc.text("Incident Classification", thType, currentY + 5);
+          doc.text("Duration", thDur, currentY + 5);
+          doc.text("EAR", thEar, currentY + 5);
+          doc.text("MAR", thMar, currentY + 5);
+          doc.text("Severity", thSev, currentY + 5);
+          currentY += 7.5;
+        }
+
+        const isAlt = idx % 2 === 1;
+        doc.setFillColor(isAlt ? 248 : 255, isAlt ? 250 : 255, isAlt ? 252 : 255);
+        doc.setDrawColor(226, 232, 240);
+        doc.rect(14, currentY, pageWidth - 28, 7, "FD");
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(15, 23, 42);
+
+        doc.text(String(idx + 1), thIdx, currentY + 4.8);
+        doc.text(String(ev.timestamp || "-"), thTime, currentY + 4.8);
+
+        const typeStr = ev.typeLabel || (ev.type === "ALERT" ? "Prolonged Eye Closure" : ev.type.replace(/_/g, " "));
+        doc.text(typeStr.substring(0, 36), thType, currentY + 4.8);
+
+        doc.text(String(ev.duration || "-"), thDur, currentY + 4.8);
+        doc.text(ev.ear !== undefined ? String(ev.ear) : "-", thEar, currentY + 4.8);
+        doc.text(ev.mar !== undefined ? String(ev.mar) : "-", thMar, currentY + 4.8);
+
+        if (ev.severity === "Critical") {
+          doc.setTextColor(220, 38, 38);
+          doc.setFont("helvetica", "bold");
+        } else if (ev.severity === "Caution") {
+          doc.setTextColor(217, 119, 6);
+          doc.setFont("helvetica", "normal");
+        } else {
+          doc.setTextColor(234, 88, 12);
+          doc.setFont("helvetica", "normal");
+        }
+        doc.text(String(ev.severity || "Warning"), thSev, currentY + 4.8);
+
+        currentY += 7;
+      });
+      currentY += 6;
+    }
+
+    // Telematics & Privacy Compliance Footer
+    const footerY = Math.max(currentY + 6, pageHeight - 20);
+    doc.setDrawColor(203, 213, 225);
+    doc.line(14, footerY, pageWidth - 14, footerY);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(148, 163, 184);
+    doc.text("Compliance Notice: Biometric telematics computed on local edge client in real-time. Video streams & facial imagery", 14, footerY + 4.5);
+    doc.text("are never saved or transmitted, strictly adhering to biometric privacy standards. VigilDrive AI System.", 14, footerY + 8);
+    doc.text("Automotive Safety Audit v1.0", pageWidth - 14, footerY + 8, { align: "right" });
+
+    doc.save(`vigildrive_report_${session.id}.pdf`);
+    showToast("PDF Exported", `Downloaded report for ${session.id}`, "safe");
+  } catch (err) {
+    console.error("PDF export failed:", err);
+    showToast("PDF Export Error", "Failed to generate PDF document.", "danger");
+  }
+}
+
+/**
+ * Generates and downloads a multi-session fleet summary PDF report
+ */
+export function exportAllSessionsToPDF(sessions) {
+  if (!sessions || sessions.length === 0) {
+    showToast("Export Failed", "No session records to export", "warn");
+    return;
+  }
+
+  try {
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    let currentY = 18;
+
+    // Header Background
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, pageWidth, 26, "F");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.setTextColor(255, 255, 255);
+    doc.text("VIGILDRIVE AI — CUMULATIVE TELEMATICS FLEET REPORT", 14, 11);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text("Consolidated Driver Monitoring History & Incident Audit Summary", 14, 18);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, pageWidth - 14, 18, { align: "right" });
+
+    currentY = 34;
+
+    // Aggregate statistics
+    const totalSessions = sessions.length;
+    const totalDuration = sessions.reduce((acc, s) => acc + (s.durationSeconds || 0), 0);
+    const totalWarnings = sessions.reduce((acc, s) => acc + (s.warningEventsCount || 0), 0);
+    const cleanSessions = sessions.filter((s) => s.warningEventsCount === 0).length;
+    const cleanRate = totalSessions > 0 ? Math.round((cleanSessions / totalSessions) * 100) : 100;
+
+    // KPI Cards
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(14, currentY, pageWidth - 28, 24, 2, 2, "FD");
+
+    const kpiColWidth = (pageWidth - 28) / 4;
+    const kpis = [
+      { label: "TOTAL SESSIONS", val: String(totalSessions) },
+      { label: "TOTAL TIME", val: formatDuration(totalDuration) },
+      { label: "TOTAL WARNINGS", val: String(totalWarnings) },
+      { label: "CLEAN TRANSIT RATE", val: `${cleanRate}%` }
+    ];
+
+    kpis.forEach((kpi, idx) => {
+      const kX = 14 + idx * kpiColWidth + 6;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(kpi.label, kX, currentY + 8);
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(15, 23, 42);
+      doc.text(kpi.val, kX, currentY + 17);
+    });
+
+    currentY += 32;
+
+    // Sessions Table Header
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`All Logged Monitoring Sessions (${totalSessions} sessions)`, 14, currentY);
+
+    currentY += 4.5;
+
+    doc.setFillColor(30, 41, 59);
+    doc.rect(14, currentY, pageWidth - 28, 7.5, "F");
+
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+
+    const sIdX = 17;
+    const sDateX = 52;
+    const sDurX = 98;
+    const sWarnX = 126;
+    const sEarX = 148;
+    const sModeX = 168;
+
+    doc.text("Session ID", sIdX, currentY + 5);
+    doc.text("Date & Start Time", sDateX, currentY + 5);
+    doc.text("Duration", sDurX, currentY + 5);
+    doc.text("Warnings", sWarnX, currentY + 5);
+    doc.text("Avg EAR", sEarX, currentY + 5);
+    doc.text("Safety Grade", sModeX, currentY + 5);
+
+    currentY += 7.5;
+
+    sessions.forEach((s, idx) => {
+      if (currentY > pageHeight - 24) {
+        doc.addPage();
+        currentY = 16;
+        doc.setFillColor(30, 41, 59);
+        doc.rect(14, currentY, pageWidth - 28, 7.5, "F");
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        doc.text("Session ID", sIdX, currentY + 5);
+        doc.text("Date & Start Time", sDateX, currentY + 5);
+        doc.text("Duration", sDurX, currentY + 5);
+        doc.text("Warnings", sWarnX, currentY + 5);
+        doc.text("Avg EAR", sEarX, currentY + 5);
+        doc.text("Safety Grade", sModeX, currentY + 5);
+        currentY += 7.5;
+      }
+
+      const isAlt = idx % 2 === 1;
+      doc.setFillColor(isAlt ? 248 : 255, isAlt ? 250 : 255, isAlt ? 252 : 255);
+      doc.setDrawColor(226, 232, 240);
+      doc.rect(14, currentY, pageWidth - 28, 7, "FD");
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor(15, 23, 42);
+
+      doc.text(String(s.id).substring(0, 18), sIdX, currentY + 4.8);
+      doc.text(formatDateTime(s.startTime), sDateX, currentY + 4.8);
+      doc.text(formatDuration(s.durationSeconds), sDurX, currentY + 4.8);
+
+      const warnColor = s.warningEventsCount > 0 ? [220, 38, 38] : [16, 185, 129];
+      doc.setTextColor(warnColor[0], warnColor[1], warnColor[2]);
+      doc.setFont("helvetica", "bold");
+      doc.text(String(s.warningEventsCount), sWarnX, currentY + 4.8);
+
+      doc.setTextColor(15, 23, 42);
+      doc.setFont("helvetica", "normal");
+      doc.text(String(s.avgEar || 0.28), sEarX, currentY + 4.8);
+
+      const grade = s.warningEventsCount === 0 ? "Grade A" : s.warningEventsCount <= 2 ? "Grade B" : "Grade C";
+      doc.setTextColor(warnColor[0], warnColor[1], warnColor[2]);
+      doc.text(grade, sModeX, currentY + 4.8);
+
+      currentY += 7;
+    });
+
+    const footerY = Math.max(currentY + 6, pageHeight - 18);
+    doc.setDrawColor(203, 213, 225);
+    doc.line(14, footerY, pageWidth - 14, footerY);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(148, 163, 184);
+    doc.text("Compliance Notice: All telemetry data is stored locally. No facial images or video streams stored.", 14, footerY + 5);
+    doc.text("VigilDrive AI Telematics Audit Log", pageWidth - 14, footerY + 5, { align: "right" });
+
+    doc.save(`vigildrive_fleet_audit_${Date.now()}.pdf`);
+    showToast("PDF Exported", `Downloaded fleet audit summary`, "safe");
+  } catch (err) {
+    console.error("Multi-session PDF export failed:", err);
+    showToast("PDF Export Error", "Failed to generate fleet PDF.", "danger");
+  }
 }
