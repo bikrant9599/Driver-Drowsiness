@@ -281,3 +281,70 @@
   align-items: center;
   justify-content: space-between;
 }
+
+/* Camera Standby & Error Overlays */
+.camera-standby-overlay,
+.camera-error-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at center, rgba(13, 22, 41, 0.95), rgba(2, 6, 23, 0.98));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem;
+  z-index: 15;
+}
+
+.standby-icon-orb,
+.error-icon-orb {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.25rem;
+  font-size: 2rem;
+}
+
+.standby-icon-orb {
+  background: rgba(37, 99, 235, 0.15);
+  border: 1px solid var(--border-medium);
+  color: var(--accent-cyan);
+  box-shadow: 0 0 25px rgba(6, 182, 212, 0.25);
+}
+
+.standby-icon-orb svg {
+  width: 34px;
+  height: 34px;
+}
+
+.error-icon-orb {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid var(--status-danger-border);
+  color: var(--status-danger);
+  box-shadow: 0 0 25px rgba(239, 68, 68, 0.35);
+}
+
+.camera-standby-overlay h3,
+.camera-error-overlay h3 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.camera-standby-overlay p,
+.camera-error-overlay p {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  max-width: 440px;
+  line-height: 1.5;
+  margin-bottom: 1.25rem;
+}
+

@@ -77,12 +77,14 @@ class StateManager {
     this.isMonitoring = false;
     this.monitoringMode = "real"; // "real" (webcam) or "sample" (benchmark simulation)
     this.cameraConnected = false;
-    this.driverStatus = "IDLE"; // IDLE, ATTENTIVE, MINOR_FATIGUE, DROWSY_ALERT, CALIBRATING
+    this.driverStatus = "IDLE"; // IDLE, ATTENTIVE, POSSIBLE DROWSINESS, ALERT, FACE NOT DETECTED, CAMERA ERROR
+    this.cameraError = null; // null or error message string
     this.faceDetected = false;
     this.eyeState = "UNDETECTED"; // OPEN, CLOSED, BLINKING, UNDETECTED
     this.currentEar = 0.28;
     this.leftEar = 0.28;
     this.rightEar = 0.28;
+    this.blinkScore = 0;
     this.blinkCount = 0;
     this.closureSeconds = 0.0;
     this.sessionDurationSec = 0;
@@ -167,7 +169,7 @@ class StateManager {
     const timeStr = new Date().toLocaleTimeString("en-US", { hour12: false });
     const event = {
       timestamp: timeStr,
-      type: "DROWSY_ALERT",
+      type: "ALERT",
       duration: `${duration.toFixed(1)}s`,
       ear: Number(earValue.toFixed(2)),
       severity: duration > 3.0 ? "Critical" : "High",

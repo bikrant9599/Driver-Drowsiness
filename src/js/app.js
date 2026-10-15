@@ -287,10 +287,22 @@ class Application {
     const modeBadge = document.getElementById("sidebar-mode-badge");
 
     if (dot && text) {
-      if (appState.driverStatus === "DROWSY_ALERT") {
+      if (appState.driverStatus === "ALERT") {
         dot.style.background = "var(--status-danger)";
         dot.style.boxShadow = "0 0 8px var(--status-danger)";
-        text.textContent = "Drowsy Alert!";
+        text.textContent = "ALERT!";
+      } else if (appState.driverStatus === "POSSIBLE DROWSINESS") {
+        dot.style.background = "var(--status-warn)";
+        dot.style.boxShadow = "0 0 8px var(--status-warn)";
+        text.textContent = "Drowsiness Warning";
+      } else if (appState.driverStatus === "FACE NOT DETECTED") {
+        dot.style.background = "var(--status-warn)";
+        dot.style.boxShadow = "none";
+        text.textContent = "Face Not Detected";
+      } else if (appState.driverStatus === "CAMERA ERROR") {
+        dot.style.background = "var(--status-danger)";
+        dot.style.boxShadow = "none";
+        text.textContent = "Camera Error";
       } else if (appState.isMonitoring) {
         dot.style.background = "var(--status-safe)";
         dot.style.boxShadow = "0 0 8px var(--status-safe)";
