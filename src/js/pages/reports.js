@@ -278,7 +278,7 @@ export function renderReportsPage() {
               (ev) => `
               <div class="timeline-item">
                 <span class="timeline-time">${ev.timestamp}</span>
-                <span><strong>${ev.type.replace('_', ' ')}</strong> (Duration: ${ev.duration})</span>
+                <span><strong>${ev.typeLabel || (ev.type === 'ALERT' ? 'Prolonged Eye Closure' : ev.type.replace('_', ' '))}</strong> (Duration: ${ev.duration})</span>
                 <span class="badge ${ev.severity === 'Critical' ? 'badge-danger' : 'badge-warn'}">${ev.severity}</span>
               </div>
             `
@@ -295,11 +295,15 @@ export function renderReportsPage() {
             </div>
             <div class="session-stat-pill">
               <div class="val tabular-nums" style="color: ${session.warningEventsCount > 0 ? '#ef4444' : '#10b981'};">${session.warningEventsCount}</div>
-              <div class="lbl">Drowsiness Alerts</div>
+              <div class="lbl">Fatigue Alerts</div>
             </div>
             <div class="session-stat-pill">
               <div class="val tabular-nums">${session.avgEar || 0.28}</div>
               <div class="lbl">Average EAR</div>
+            </div>
+            <div class="session-stat-pill">
+              <div class="val tabular-nums">${session.yawnCount !== undefined ? session.yawnCount : 0}</div>
+              <div class="lbl">Yawns Counted</div>
             </div>
           </div>
 

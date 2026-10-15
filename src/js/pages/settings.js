@@ -14,7 +14,7 @@ export async function renderSettingsPage() {
   const cameras = await visionEngine.enumerateCameras();
 
   container.innerHTML = `
-    <!-- 1. Camera & Hardware Configuration -->
+    <!-- 1. Camera & Optical Sensor Hardware -->
     <div class="settings-section-card">
       <div class="card-header">
         <div class="card-title">
@@ -47,7 +47,7 @@ export async function renderSettingsPage() {
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-title">Hardware Acceleration</div>
-            <div class="setting-desc">Utilize WebGL/WebGPU hardware acceleration for MediaPipe 468-point 3D landmark tracking.</div>
+            <div class="setting-desc">Utilize WebGL/WebGPU hardware acceleration for MediaPipe 478-point 3D landmark mesh.</div>
           </div>
           <div class="setting-control">
             <span class="badge badge-safe"><span class="badge-dot"></span> Enabled (GPU Active)</span>
@@ -81,7 +81,7 @@ export async function renderSettingsPage() {
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-title">Warning Tone Profile</div>
-            <div class="setting-desc">Select the auditory alert profile synthesized through the vehicle speakers.</div>
+            <div class="setting-desc">Select the auditory alert profile synthesized through vehicle speakers.</div>
           </div>
           <div class="setting-control" style="min-width: 240px; display: flex; gap: 0.5rem;">
             <select class="form-select" id="settings-tone-select">
@@ -123,11 +123,11 @@ export async function renderSettingsPage() {
       </div>
     </div>
 
-    <!-- 3. Biometric Telematics Sensitivity -->
+    <!-- 3. Eye Aspect Ratio & Prolonged Closure Sensitivity -->
     <div class="settings-section-card">
       <div class="card-header">
         <div class="card-title">
-          ${ICONS.gauge} Biometric Monitoring Sensitivity
+          ${ICONS.gauge} Eye Closure & EAR Sensitivity
         </div>
       </div>
 
@@ -160,7 +160,107 @@ export async function renderSettingsPage() {
       </div>
     </div>
 
-    <!-- 4. Appearance & Automotive Theme -->
+    <!-- 4. Yawning Detection (Mouth Opening Analysis) -->
+    <div class="settings-section-card">
+      <div class="card-header">
+        <div class="card-title">
+          ${ICONS.user} Yawning Detection
+        </div>
+      </div>
+
+      <div class="settings-grid-rows">
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-title">Enable Yawning Detection</div>
+            <div class="setting-desc">Track mouth opening ratio (MAR) to detect fatigue yawning while filtering out ordinary speech.</div>
+          </div>
+          <div class="setting-control">
+            <label class="switch-control">
+              <input type="checkbox" id="settings-yawn-enabled" ${appState.settings.yawnDetectionEnabled ? 'checked' : ''} />
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-title">Mouth Aspect Ratio (MAR) Threshold</div>
+            <div class="setting-desc">Opening ratio required to trigger yawn classification. Higher values require wider opening. (Default: 0.60)</div>
+          </div>
+          <div class="setting-control">
+            <div class="range-with-val">
+              <input type="range" id="settings-mar-slider" min="0.45" max="0.85" step="0.05" value="${appState.settings.marThreshold}" />
+              <span class="range-val-badge" id="settings-mar-val">${appState.settings.marThreshold.toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-title">Yawn Sustained Duration Threshold</div>
+            <div class="setting-desc">Duration mouth must remain continuously open to avoid classifying short vocal words as yawning. (Default: 1.8s)</div>
+          </div>
+          <div class="setting-control">
+            <div class="range-with-val">
+              <input type="range" id="settings-yawn-dur-slider" min="1.0" max="3.5" step="0.1" value="${appState.settings.yawnDurationSec}" />
+              <span class="range-val-badge" id="settings-yawn-dur-val">${appState.settings.yawnDurationSec.toFixed(1)}s</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. Head Position & Pose Estimation -->
+    <div class="settings-section-card">
+      <div class="card-header">
+        <div class="card-title">
+          ${ICONS.cpu} Head Position & Orientation
+        </div>
+      </div>
+
+      <div class="settings-grid-rows">
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-title">Enable Head Pose Monitoring</div>
+            <div class="setting-desc">Detect downward head drooping or microsleep nods using 3D facial landmark geometry.</div>
+          </div>
+          <div class="setting-control">
+            <label class="switch-control">
+              <input type="checkbox" id="settings-headpose-enabled" ${appState.settings.headPoseEnabled ? 'checked' : ''} />
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-title">Downward Head Drop Sensitivity</div>
+            <div class="setting-desc">Pitch ratio limit below which head is classified as downward tilting. (Default: 0.65)</div>
+          </div>
+          <div class="setting-control">
+            <div class="range-with-val">
+              <input type="range" id="settings-headdrop-slider" min="0.45" max="0.85" step="0.05" value="${appState.settings.headDropThreshold}" />
+              <span class="range-val-badge" id="settings-headdrop-val">${appState.settings.headDropThreshold.toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-title">Sustained Head Drop Duration</div>
+            <div class="setting-desc">Consecutive seconds head must remain tilted downward before issuing a fatigue caution. (Default: 1.2s)</div>
+          </div>
+          <div class="setting-control">
+            <div class="range-with-val">
+              <input type="range" id="settings-head-dur-slider" min="0.8" max="2.5" step="0.1" value="${appState.settings.headDropDurationSec}" />
+              <span class="range-val-badge" id="settings-head-dur-val">${appState.settings.headDropDurationSec.toFixed(1)}s</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6. Appearance & Automotive Theme -->
     <div class="settings-section-card">
       <div class="card-header">
         <div class="card-title">
@@ -186,7 +286,7 @@ export async function renderSettingsPage() {
       </div>
     </div>
 
-    <!-- 5. Data Privacy & Diagnostics -->
+    <!-- 7. Data Privacy & Diagnostics -->
     <div class="settings-section-card">
       <div class="card-header">
         <div class="card-title">
@@ -211,7 +311,7 @@ export async function renderSettingsPage() {
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-title">Reset System to Defaults</div>
-            <div class="setting-desc">Restores factory default sensitivity thresholds and restores baseline sample benchmark sessions.</div>
+            <div class="setting-desc">Restores factory default sensitivity parameters (2.0s duration, 0.22 EAR, 0.60 MAR) and restores baseline sample sessions.</div>
           </div>
           <div class="setting-control">
             <button class="btn btn-outline-danger btn-sm" id="settings-reset-all-btn">
@@ -223,7 +323,6 @@ export async function renderSettingsPage() {
     </div>
   `;
 
-  // Bind Event Listeners
   bindSettingsEvents(container);
 
   return container;
@@ -236,6 +335,10 @@ function bindSettingsEvents(container) {
     cameraSelect.addEventListener("change", (e) => {
       appState.saveSettings({ preferredCameraId: e.target.value });
       showToast("Camera Updated", "Preferred input sensor saved.", "safe");
+      if (appState.isMonitoring && appState.monitoringMode === "real") {
+        visionEngine.stopCamera();
+        visionEngine.startCamera(visionEngine.videoElement, visionEngine.canvasElement);
+      }
     });
   }
 
@@ -308,6 +411,68 @@ function bindSettingsEvents(container) {
     });
   }
 
+  // Yawning enabled switch
+  const yawnSwitch = container.querySelector("#settings-yawn-enabled");
+  if (yawnSwitch) {
+    yawnSwitch.addEventListener("change", (e) => {
+      appState.saveSettings({ yawnDetectionEnabled: e.target.checked });
+      showToast("Yawning Detection", e.target.checked ? "Yawn detection enabled" : "Yawn detection disabled", "info");
+    });
+  }
+
+  // MAR threshold slider
+  const marSlider = container.querySelector("#settings-mar-slider");
+  const marVal = container.querySelector("#settings-mar-val");
+  if (marSlider && marVal) {
+    marSlider.addEventListener("input", (e) => {
+      const val = parseFloat(e.target.value);
+      marVal.textContent = val.toFixed(2);
+      appState.saveSettings({ marThreshold: val });
+    });
+  }
+
+  // Yawn duration slider
+  const yawnDurSlider = container.querySelector("#settings-yawn-dur-slider");
+  const yawnDurVal = container.querySelector("#settings-yawn-dur-val");
+  if (yawnDurSlider && yawnDurVal) {
+    yawnDurSlider.addEventListener("input", (e) => {
+      const val = parseFloat(e.target.value);
+      yawnDurVal.textContent = `${val.toFixed(1)}s`;
+      appState.saveSettings({ yawnDurationSec: val });
+    });
+  }
+
+  // Head pose enabled switch
+  const headposeSwitch = container.querySelector("#settings-headpose-enabled");
+  if (headposeSwitch) {
+    headposeSwitch.addEventListener("change", (e) => {
+      appState.saveSettings({ headPoseEnabled: e.target.checked });
+      showToast("Head Pose Monitoring", e.target.checked ? "Head pose monitoring enabled" : "Head pose monitoring disabled", "info");
+    });
+  }
+
+  // Head drop threshold slider
+  const headDropSlider = container.querySelector("#settings-headdrop-slider");
+  const headDropVal = container.querySelector("#settings-headdrop-val");
+  if (headDropSlider && headDropVal) {
+    headDropSlider.addEventListener("input", (e) => {
+      const val = parseFloat(e.target.value);
+      headDropVal.textContent = val.toFixed(2);
+      appState.saveSettings({ headDropThreshold: val });
+    });
+  }
+
+  // Head drop duration slider
+  const headDurSlider = container.querySelector("#settings-head-dur-slider");
+  const headDurVal = container.querySelector("#settings-head-dur-val");
+  if (headDurSlider && headDurVal) {
+    headDurSlider.addEventListener("input", (e) => {
+      const val = parseFloat(e.target.value);
+      headDurVal.textContent = `${val.toFixed(1)}s`;
+      appState.saveSettings({ headDropDurationSec: val });
+    });
+  }
+
   // Theme buttons
   const darkBtn = container.querySelector("#settings-dark-theme-btn");
   const lightBtn = container.querySelector("#settings-light-theme-btn");
@@ -328,7 +493,7 @@ function bindSettingsEvents(container) {
     resetBtn.addEventListener("click", () => {
       showConfirmModal({
         title: "Restore Factory Default Settings?",
-        message: "This will restore default sensitivity parameters (2.0s duration, 0.22 EAR) and reset session logs.",
+        message: "This will restore default sensitivity parameters (2.0s duration, 0.22 EAR, 0.60 MAR) and reset session logs.",
         confirmText: "Restore Defaults",
         isDanger: true,
         onConfirm: () => {

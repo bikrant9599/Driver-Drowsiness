@@ -274,7 +274,7 @@ class Application {
 
     // 2. Monitoring Session Duration Timer
     this.sessionTimerInterval = setInterval(() => {
-      if (appState.isMonitoring) {
+      if (appState.isMonitoring && !appState.isPaused) {
         appState.sessionDurationSec++;
       }
     }, 1000);
@@ -294,7 +294,7 @@ class Application {
       } else if (appState.driverStatus === "POSSIBLE DROWSINESS") {
         dot.style.background = "var(--status-warn)";
         dot.style.boxShadow = "0 0 8px var(--status-warn)";
-        text.textContent = "Drowsiness Warning";
+        text.textContent = "Caution Warning";
       } else if (appState.driverStatus === "FACE NOT DETECTED") {
         dot.style.background = "var(--status-warn)";
         dot.style.boxShadow = "none";
@@ -303,6 +303,10 @@ class Application {
         dot.style.background = "var(--status-danger)";
         dot.style.boxShadow = "none";
         text.textContent = "Camera Error";
+      } else if (appState.isPaused) {
+        dot.style.background = "var(--status-warn)";
+        dot.style.boxShadow = "none";
+        text.textContent = "Monitoring Paused";
       } else if (appState.isMonitoring) {
         dot.style.background = "var(--status-safe)";
         dot.style.boxShadow = "0 0 8px var(--status-safe)";

@@ -2,7 +2,7 @@
    VIEW: DASHBOARD
    ========================================================================== */
 
-import { ICONS, formatDuration, formatDateTime, showToast } from "../utils.js";
+import { ICONS, formatDuration, formatDateTime, showToast, showConfirmModal } from "../utils.js";
 import { appState } from "../state.js";
 import { soundManager } from "../audio.js";
 import { visionEngine } from "../vision.js";
@@ -28,6 +28,7 @@ export function renderDashboardPage() {
   container.className = "dashboard-container fade-in";
 
   const isLive = appState.isMonitoring;
+  const isPaused = appState.isPaused;
   const driverStatus = appState.driverStatus;
   const statusColorClass = getDashStatusClass(driverStatus);
   const statusBadgeClass = getDashBadgeClass(driverStatus);
@@ -39,23 +40,12 @@ export function renderDashboardPage() {
         <div class="system-status-orb ${isLive ? (driverStatus === 'ALERT' ? 'drowsy' : 'active') : 'idle'}" id="dash-status-orb"></div>
         <div class="system-status-text">
           <h3 id="dash-system-title">${isLive ? (appState.monitoringMode === 'sample' ? 'Benchmark Simulation Active' : 'Real-Time Camera AI Active') : 'Driver Monitoring System Standby'}</h3>
-          <p id="dash-system-desc">${isLive ? 'Continuous biometric telemetry running' : 'System calibrated and ready to engage'}</p>
+          <p id="dash-system-desc">${isLive ? (isPaused ? 'Telemetry paused by user' : 'Continuous biometric telemetry running') : 'System calibrated and ready to engage'}</p>
         </div>
       </div>
 
       <div class="telematics-actions" id="dash-actions-group">
-        ${
-          isLive
-            ? `<button class="btn btn-outline-danger" id="dash-stop-btn">
-                ${ICONS.stop} Stop Monitoring
-               </button>`
-            : `<button class="btn btn-primary" id="dash-start-live-btn">
-                ${ICONS.camera} Start Live Camera
-               </button>
-               <button class="btn btn-secondary" id="dash-start-demo-btn">
-                ${ICONS.play} Run Benchmark Simulation
-               </button>`
-        }
+        ${renderDashActionButtons(isLive, isPaused)}
         <button class="btn btn-secondary btn-icon" id="dash-test-alarm-btn" title="Test Alarm Tone">
           ${ICONS.volume2}
         </button>
@@ -110,7 +100,7 @@ export function renderDashboardPage() {
         </div>
         <div class="metric-tile-footer">
           <span>Current Session Events</span>
-          <span class="badge ${appState.sessionWarningsCount > 0 ? 'badge-danger' : 'badge-safe'}" id="dash-warnings-badge">
+          <span class="badge ${appState.sessionWarningsCount > 0 ? 'badge-danger' : 'badge-safe'}">
             ${appState.sessionWarningsCount > 0 ? 'Attention Needed' : 'Safe Zero'}
           </span>
         </div>
@@ -127,8 +117,8 @@ export function renderDashboardPage() {
         </div>
         <div class="metric-tile-footer">
           <span>Active Telematics Clock</span>
-          <span class="badge ${isLive ? 'badge-info' : 'badge-neutral'}" id="dash-duration-badge">
-            ${isLive ? 'Tracking' : 'Stopped'}
+          <span class="badge ${isLive ? 'badge-info' : 'badge-neutral'}">
+            ${isLive ? (isPaused ? 'Paused' : 'Tracking') : 'Stopped'}
           </span>
         </div>
       </div>
@@ -161,7 +151,7 @@ export function renderDashboardPage() {
                   : driverStatus === 'CAMERA ERROR'
                   ? 'CAMERA SENSOR ERROR'
                   : isLive
-                  ? 'ATTENTIVE & VIGILANT'
+                  ? (isPaused ? 'TELEMATICS PAUSED' : 'ATTENTIVE & VIGILANT')
                   : 'MONITORING STANDBY'
               }
             </div>
@@ -170,13 +160,13 @@ export function renderDashboardPage() {
                 driverStatus === 'ALERT'
                   ? 'Immediate high-frequency audible alarm active. Driver wake up required!'
                   : driverStatus === 'POSSIBLE DROWSINESS'
-                  ? 'Eye closure duration elevated. Prepare to pull over if fatigued.'
+                  ? 'Fatigue warning signals active (eye closure, yawning, or head drop).'
                   : driverStatus === 'FACE NOT DETECTED'
                   ? 'Please center driver face within camera field of view.'
                   : driverStatus === 'CAMERA ERROR'
                   ? 'Webcam permission denied or camera device unavailable.'
                   : isLive
-                  ? 'Eye aspect ratio within nominal attentive safety thresholds.'
+                  ? (isPaused ? 'Click Resume Monitoring to continue camera tracking.' : 'Eye aspect ratio within nominal attentive safety thresholds.')
                   : 'Click Start Live Camera to initiate AI computer vision tracking.'
               }
             </p>
@@ -185,6 +175,7 @@ export function renderDashboardPage() {
 
         <!-- Telematics Meters -->
         <div class="telematics-bars">
+          <!-- EAR Meter -->
           <div class="meter-row">
             <div class="meter-header">
               <span>Eye Aspect Ratio (EAR)</span>
@@ -195,6 +186,7 @@ export function renderDashboardPage() {
             </div>
           </div>
 
+          <!-- Closure Meter -->
           <div class="meter-row">
             <div class="meter-header">
               <span>Eye Closure Timer</span>
@@ -205,13 +197,25 @@ export function renderDashboardPage() {
             </div>
           </div>
 
+          <!-- Mouth Opening (MAR) Meter -->
           <div class="meter-row">
             <div class="meter-header">
-              <span>Eye Landmark Status</span>
-              <span id="dash-symmetry-val">L: ${appState.leftEar.toFixed(2)} | R: ${appState.rightEar.toFixed(2)} | Eyes: ${appState.eyeState}</span>
+              <span>Mouth Opening (MAR) & Yawn Count</span>
+              <span id="dash-mar-val">MAR: ${appState.currentMar.toFixed(2)} | Yawns: ${appState.yawnCount}</span>
             </div>
             <div class="meter-track">
-              <div class="meter-fill fill-green" id="dash-symmetry-bar" style="width: ${Math.min(100, (appState.leftEar / 0.4) * 100)}%;"></div>
+              <div class="meter-fill fill-green" id="dash-mar-bar" style="width: ${Math.min(100, (appState.currentMar / 0.8) * 100)}%;"></div>
+            </div>
+          </div>
+
+          <!-- Head Position Meter -->
+          <div class="meter-row">
+            <div class="meter-header">
+              <span>Head Position & Orientation</span>
+              <span id="dash-pitch-val">Pitch Ratio: ${appState.headPitch.toFixed(2)} (${appState.isHeadDrop ? 'Downward Nod' : 'Upright'})</span>
+            </div>
+            <div class="meter-track">
+              <div class="meter-fill fill-blue" id="dash-pitch-bar" style="width: ${Math.min(100, (appState.headPitch / 1.5) * 100)}%;"></div>
             </div>
           </div>
         </div>
@@ -226,7 +230,7 @@ export function renderDashboardPage() {
             </div>
           </div>
 
-          <div style="display: flex; flex-direction: column; gap: 1rem; font-size: 0.85rem;">
+          <div style="display: flex; flex-direction: column; gap: 0.875rem; font-size: 0.85rem;">
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.5rem;">
               <span style="color: var(--text-secondary);">Closure Trigger Threshold</span>
               <strong class="tabular-nums">${appState.settings.drowsinessDurationSec.toFixed(1)} seconds</strong>
@@ -238,13 +242,18 @@ export function renderDashboardPage() {
             </div>
 
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.5rem;">
-              <span style="color: var(--text-secondary);">Alarm Tone Profile</span>
-              <strong style="text-transform: capitalize;">${appState.settings.alarmSound}</strong>
+              <span style="color: var(--text-secondary);">Yawning Detection</span>
+              <strong>${appState.settings.yawnDetectionEnabled ? `Enabled (MAR ${appState.settings.marThreshold.toFixed(2)})` : 'Disabled'}</strong>
             </div>
 
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.5rem;">
-              <span style="color: var(--text-secondary);">Voice Alert</span>
-              <strong>${appState.settings.speechAlert ? 'Enabled' : 'Disabled'}</strong>
+              <span style="color: var(--text-secondary);">Head Position Monitoring</span>
+              <strong>${appState.settings.headPoseEnabled ? `Enabled (Pitch ${appState.settings.headDropThreshold.toFixed(2)})` : 'Disabled'}</strong>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.5rem;">
+              <span style="color: var(--text-secondary);">Alarm Tone Profile</span>
+              <strong style="text-transform: capitalize;">${appState.settings.alarmSound}</strong>
             </div>
 
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.5rem;">
@@ -279,8 +288,9 @@ export function renderDashboardPage() {
             <tr>
               <th>Timestamp</th>
               <th>Incident Type</th>
-              <th>Closure Duration</th>
+              <th>Duration</th>
               <th>Detected EAR</th>
+              <th>Detected MAR</th>
               <th>Severity</th>
               <th>Origin</th>
             </tr>
@@ -293,10 +303,43 @@ export function renderDashboardPage() {
     </div>
   `;
 
+  function renderDashActionButtons(isMonitoring, isPausedState) {
+    if (!isMonitoring) {
+      return `
+        <button class="btn btn-primary" id="dash-start-live-btn">
+          ${ICONS.camera} Start Live Camera
+        </button>
+        <button class="btn btn-secondary" id="dash-start-demo-btn">
+          ${ICONS.play} Run Benchmark Simulation
+        </button>
+      `;
+    }
+
+    if (isPausedState) {
+      return `
+        <button class="btn btn-primary" id="dash-resume-btn">
+          ${ICONS.play} Resume
+        </button>
+        <button class="btn btn-outline-danger" id="dash-stop-btn">
+          ${ICONS.stop} Stop Monitoring
+        </button>
+      `;
+    }
+
+    return `
+      <button class="btn btn-secondary" id="dash-pause-btn">
+        ${ICONS.pause} Pause
+      </button>
+      <button class="btn btn-outline-danger" id="dash-stop-btn">
+        ${ICONS.stop} Stop Monitoring
+      </button>
+    `;
+  }
+
   function renderRecentEventsRows() {
     if (appState.recentEvents.length === 0) {
       return `<tr>
-        <td colspan="6" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+        <td colspan="7" style="text-align: center; padding: 2rem; color: var(--text-muted);">
           No drowsiness warning events recorded in this session. Driver vigilance is normal.
         </td>
       </tr>`;
@@ -307,9 +350,10 @@ export function renderDashboardPage() {
         (ev) => `
         <tr>
           <td class="tabular-nums">${ev.timestamp}</td>
-          <td><strong>${ev.type === 'ALERT' ? 'Prolonged Eye Closure' : ev.type.replace('_', ' ')}</strong></td>
+          <td><strong>${ev.typeLabel || (ev.type === 'ALERT' ? 'Prolonged Eye Closure' : ev.type.replace('_', ' '))}</strong></td>
           <td class="tabular-nums">${ev.duration}</td>
-          <td class="tabular-nums">${ev.ear}</td>
+          <td class="tabular-nums">${ev.ear !== undefined ? ev.ear : '-'}</td>
+          <td class="tabular-nums">${ev.mar !== undefined ? ev.mar : '-'}</td>
           <td>
             <span class="badge ${ev.severity === 'Critical' ? 'badge-danger' : 'badge-warn'}">
               ${ev.severity}
@@ -338,19 +382,16 @@ export function renderDashboardPage() {
     const curStatus = appState.driverStatus;
     const curIsLive = appState.isMonitoring;
 
-    // Status orb
     const orb = container.querySelector("#dash-status-orb");
     if (orb) {
       orb.className = `system-status-orb ${curIsLive ? (curStatus === 'ALERT' ? 'drowsy' : 'active') : 'idle'}`;
     }
 
-    // Camera stat
     const camStat = container.querySelector("#dash-camera-stat");
     if (camStat) {
       camStat.textContent = appState.cameraConnected ? "ONLINE" : curStatus === "CAMERA ERROR" ? "ERROR" : "STANDBY";
     }
 
-    // Driver stat
     const driverStat = container.querySelector("#dash-driver-stat");
     if (driverStat) {
       driverStat.textContent = curStatus;
@@ -362,14 +403,12 @@ export function renderDashboardPage() {
       faceStat.textContent = appState.faceDetected ? "Detected" : curIsLive ? "Searching" : "Offline";
     }
 
-    // Warnings & duration
     const warnCount = container.querySelector("#dash-warnings-count");
     if (warnCount) warnCount.textContent = appState.sessionWarningsCount;
 
     const durTimer = container.querySelector("#dash-duration-timer");
     if (durTimer) durTimer.textContent = formatDuration(appState.sessionDurationSec);
 
-    // Hero large status
     const largeStatus = container.querySelector("#dash-large-status");
     if (largeStatus) {
       largeStatus.className = `status-state-large ${getDashStatusClass(curStatus)}`;
@@ -383,7 +422,7 @@ export function renderDashboardPage() {
           : curStatus === "CAMERA ERROR"
           ? "CAMERA SENSOR ERROR"
           : curIsLive
-          ? "ATTENTIVE & VIGILANT"
+          ? (appState.isPaused ? "TELEMATICS PAUSED" : "ATTENTIVE & VIGILANT")
           : "MONITORING STANDBY";
     }
 
@@ -400,51 +439,77 @@ export function renderDashboardPage() {
     const closureBar = container.querySelector("#dash-closure-bar");
     if (closureBar) closureBar.style.width = `${Math.min(100, (appState.closureSeconds / appState.settings.drowsinessDurationSec) * 100)}%`;
 
-    const symVal = container.querySelector("#dash-symmetry-val");
-    if (symVal) symVal.textContent = `L: ${appState.leftEar.toFixed(2)} | R: ${appState.rightEar.toFixed(2)} | Eyes: ${appState.eyeState}`;
+    const marVal = container.querySelector("#dash-mar-val");
+    if (marVal) marVal.textContent = `MAR: ${appState.currentMar.toFixed(2)} | Yawns: ${appState.yawnCount}`;
 
-    const symBar = container.querySelector("#dash-symmetry-bar");
-    if (symBar) symBar.style.width = `${Math.min(100, (appState.leftEar / 0.4) * 100)}%`;
+    const marBar = container.querySelector("#dash-mar-bar");
+    if (marBar) marBar.style.width = `${Math.min(100, (appState.currentMar / 0.8) * 100)}%`;
 
-    // Events table
+    const pitchVal = container.querySelector("#dash-pitch-val");
+    if (pitchVal) pitchVal.textContent = `Pitch: ${appState.headPitch.toFixed(2)} (${appState.isHeadDrop ? 'Downward Nod' : 'Upright'})`;
+
+    const pitchBar = container.querySelector("#dash-pitch-bar");
+    if (pitchBar) pitchBar.style.width = `${Math.min(100, (appState.headPitch / 1.5) * 100)}%`;
+
     const tbody = container.querySelector("#dash-events-tbody");
     if (tbody) tbody.innerHTML = renderRecentEventsRows();
   }, 100);
 
   // Button handlers
-  const startLiveBtn = container.querySelector("#dash-start-live-btn");
-  if (startLiveBtn) {
-    startLiveBtn.addEventListener("click", () => {
-      appState.startSession("real");
-      appState.setPage("live");
-    });
-  }
+  const bindDashButtons = () => {
+    const startLiveBtn = container.querySelector("#dash-start-live-btn");
+    if (startLiveBtn) {
+      startLiveBtn.onclick = () => {
+        appState.startSession("real");
+        appState.setPage("live");
+      };
+    }
 
-  const startDemoBtn = container.querySelector("#dash-start-demo-btn");
-  if (startDemoBtn) {
-    startDemoBtn.addEventListener("click", () => {
-      appState.startSession("sample");
-      appState.setPage("live");
-    });
-  }
+    const startDemoBtn = container.querySelector("#dash-start-demo-btn");
+    if (startDemoBtn) {
+      startDemoBtn.onclick = () => {
+        appState.startSession("sample");
+        appState.setPage("live");
+      };
+    }
 
-  const stopBtn = container.querySelector("#dash-stop-btn");
-  if (stopBtn) {
-    stopBtn.addEventListener("click", () => {
-      visionEngine.stopCamera();
-      appState.stopSession();
-      showToast("Session Saved", "Monitoring session ended and saved.", "safe");
-      appState.setPage("dashboard");
-    });
-  }
+    const pauseBtn = container.querySelector("#dash-pause-btn");
+    if (pauseBtn) {
+      pauseBtn.onclick = () => {
+        appState.pauseSession();
+        soundManager.stopDrowsinessAlert();
+        appState.setPage("dashboard");
+      };
+    }
 
-  const testAlarmBtn = container.querySelector("#dash-test-alarm-btn");
-  if (testAlarmBtn) {
-    testAlarmBtn.addEventListener("click", () => {
-      soundManager.testAlarm();
-      showToast("Alarm Test", `Sounding ${appState.settings.alarmSound} tone alert.`, "info");
-    });
-  }
+    const resumeBtn = container.querySelector("#dash-resume-btn");
+    if (resumeBtn) {
+      resumeBtn.onclick = () => {
+        appState.resumeSession();
+        appState.setPage("dashboard");
+      };
+    }
+
+    const stopBtn = container.querySelector("#dash-stop-btn");
+    if (stopBtn) {
+      stopBtn.onclick = () => {
+        visionEngine.stopCamera();
+        appState.stopSession();
+        showToast("Session Saved", "Monitoring session ended and saved.", "safe");
+        appState.setPage("dashboard");
+      };
+    }
+
+    const testAlarmBtn = container.querySelector("#dash-test-alarm-btn");
+    if (testAlarmBtn) {
+      testAlarmBtn.onclick = () => {
+        soundManager.testAlarm();
+        showToast("Alarm Test", `Sounding ${appState.settings.alarmSound} tone alert.`, "info");
+      };
+    }
+  };
+
+  bindDashButtons();
 
   container.querySelector("#dash-open-settings-btn").addEventListener("click", () => {
     appState.setPage("settings");

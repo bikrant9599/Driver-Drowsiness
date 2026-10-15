@@ -14,6 +14,7 @@ export function renderLivePage() {
   container.className = "live-container fade-in";
 
   const isLive = appState.isMonitoring;
+  const isPaused = appState.isPaused;
   const isSample = appState.monitoringMode === "sample";
 
   container.innerHTML = `
@@ -43,6 +44,11 @@ export function renderLivePage() {
         <div class="video-container" id="live-video-viewport">
           <video id="webcam-video" autoplay playsinline muted></video>
           <canvas id="overlay-canvas"></canvas>
+
+          <!-- Audio Restriction Banner -->
+          <div class="hud-audio-warning" id="hud-audio-warning" style="${appState.audioBlocked ? 'display: flex;' : 'display: none;'}">
+            ${ICONS.bellOff} <span>Audio restricted by browser &bull; Click to allow alarm</span>
+          </div>
 
           <!-- Standby Overlay (shown before monitoring starts) -->
           <div class="camera-standby-overlay" id="camera-standby-overlay" style="${isLive ? 'display: none;' : 'display: flex;'}">
@@ -92,34 +98,28 @@ export function renderLivePage() {
             <div class="hud-pill">
               <span>ALERT LIMIT: ${appState.settings.drowsinessDurationSec.toFixed(1)}s</span>
             </div>
+            ${
+              appState.settings.yawnDetectionEnabled
+                ? `<div class="hud-pill">
+                    <span>MAR: <strong id="hud-mar-text" class="tabular-nums">${appState.currentMar.toFixed(2)}</strong></span>
+                   </div>`
+                : ''
+            }
           </div>
 
-          <!-- Red Flashing HUD Drowsiness Banner -->
+          <!-- Prominent Visual Warning Banner -->
           <div class="hud-alert-banner" id="hud-alert-banner">
             <div style="font-size: 2.5rem; line-height: 1;">⚠️</div>
-            <h2>DROWSINESS DETECTED!</h2>
-            <p>PROLONGED EYE CLOSURE &bull; WAKE UP IMMEDIATELY</p>
+            <h2 id="hud-alert-title">DROWSINESS DETECTED!</h2>
+            <div class="hud-alert-type-badge" id="hud-alert-type">PROLONGED EYE CLOSURE</div>
+            <p id="hud-alert-desc">EYE CLOSURE: 2.0s &bull; WAKE UP IMMEDIATELY</p>
           </div>
         </div>
 
-        <!-- Stage Footer Controls -->
+        <!-- Stage Footer Controls (Start, Pause/Resume, Stop, Reset, Mute) -->
         <div class="video-stage-footer">
           <div class="control-btn-group" id="live-action-buttons">
-            ${
-              !isLive
-                ? `<button class="btn btn-primary" id="live-start-btn">
-                    ${ICONS.play} Start Monitoring
-                   </button>`
-                : `<button class="btn btn-danger" id="live-stop-btn">
-                    ${ICONS.stop} Stop Monitoring
-                   </button>`
-            }
-            <button class="btn btn-secondary" id="live-reset-btn" title="Reset current session">
-              ${ICONS.refresh} Reset
-            </button>
-            <button class="btn btn-secondary" id="live-snapshot-btn" title="Save snapshot to reports">
-              ${ICONS.camera} Snapshot
-            </button>
+            ${renderControlButtons(isLive, isPaused)}
           </div>
 
           <div style="display: flex; align-items: center; gap: 0.75rem;">
@@ -152,12 +152,12 @@ export function renderLivePage() {
 
           <div style="display: flex; justify-content: space-between; width: 100%; font-size: 0.7rem; color: var(--text-muted); margin-top: 0.4rem;">
             <span>0.0s</span>
-            <span>Warning: 0.4s</span>
+            <span>Caution: 0.35s</span>
             <span style="color: var(--status-danger);">Alarm: ${appState.settings.drowsinessDurationSec.toFixed(1)}s</span>
           </div>
         </div>
 
-        <!-- Live Waveform EAR Chart -->
+        <!-- Real-Time EAR Waveform Chart -->
         <div class="ear-chart-card">
           <div class="card-header" style="margin-bottom: 0.5rem;">
             <div class="card-title" style="font-size: 0.9rem;">
@@ -171,6 +171,45 @@ export function renderLivePage() {
           <div style="display: flex; justify-content: space-between; font-size: 0.725rem; color: var(--text-muted);">
             <span>Threshold: ${appState.settings.earThreshold.toFixed(2)}</span>
             <span style="color: var(--status-safe);">Attentive: &gt;${appState.settings.earThreshold.toFixed(2)}</span>
+          </div>
+        </div>
+
+        <!-- Yawning & Head Position Telemetry Card -->
+        <div class="card" style="padding: 1.25rem;">
+          <div class="card-header" style="margin-bottom: 0.875rem;">
+            <div class="card-title" style="font-size: 0.9rem;">
+              ${ICONS.cpu} Fatigue Indicators
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.825rem;">
+            <!-- Yawning Indicator -->
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="color: var(--text-secondary);">Mouth Opening (MAR):</span>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <strong id="live-mar-val" class="tabular-nums">${appState.currentMar.toFixed(2)}</strong>
+                <span class="badge ${appState.isYawning ? 'badge-warn' : 'badge-neutral'}" id="live-yawn-badge" style="font-size: 0.65rem;">
+                  ${appState.isYawning ? 'Yawning' : 'Normal'}
+                </span>
+              </div>
+            </div>
+
+            <!-- Confirmed Yawns -->
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: var(--text-secondary);">Confirmed Yawns:</span>
+              <strong id="live-yawn-count" class="tabular-nums" style="color: var(--status-warn);">${appState.yawnCount}</strong>
+            </div>
+
+            <!-- Head Pose Pitch -->
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="color: var(--text-secondary);">Head Position:</span>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <strong id="live-pitch-val" class="tabular-nums">${appState.headPitch.toFixed(2)}</strong>
+                <span class="badge ${appState.isHeadDrop ? 'badge-danger' : 'badge-safe'}" id="live-headdrop-badge" style="font-size: 0.65rem;">
+                  ${appState.isHeadDrop ? 'Downward Nod' : 'Upright'}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -199,12 +238,12 @@ export function renderLivePage() {
             </div>
 
             <div style="display: flex; justify-content: space-between;">
-              <span style="color: var(--text-secondary);">Current Session Alerts:</span>
+              <span style="color: var(--text-secondary);">Drowsiness Alerts:</span>
               <strong id="live-session-alerts" class="tabular-nums" style="color: var(--status-danger);">${appState.sessionWarningsCount}</strong>
             </div>
 
             <div style="display: flex; justify-content: space-between;">
-              <span style="color: var(--text-secondary);">Audio Alert Tone:</span>
+              <span style="color: var(--text-secondary);">Audio Alarm Tone:</span>
               <strong style="text-transform: capitalize;">${appState.settings.alarmSound}</strong>
             </div>
           </div>
@@ -213,15 +252,61 @@ export function renderLivePage() {
     </div>
   `;
 
-  // Mount logic after DOM element is attached
   setTimeout(() => {
     initLiveCameraAndCanvas(container);
   }, 20);
 
-  // Bind Buttons
   bindLiveButtons(container);
 
   return container;
+}
+
+function renderControlButtons(isLive, isPaused) {
+  if (!isLive) {
+    return `
+      <button class="btn btn-primary" id="live-start-btn">
+        ${ICONS.play} Start Monitoring
+      </button>
+      <button class="btn btn-secondary" id="live-reset-btn" title="Reset current session">
+        ${ICONS.refresh} Reset
+      </button>
+      <button class="btn btn-secondary" id="live-snapshot-btn" title="Save snapshot to reports">
+        ${ICONS.camera} Snapshot
+      </button>
+    `;
+  }
+
+  if (isPaused) {
+    return `
+      <button class="btn btn-primary" id="live-resume-btn">
+        ${ICONS.play} Resume
+      </button>
+      <button class="btn btn-danger" id="live-stop-btn">
+        ${ICONS.stop} Stop Monitoring
+      </button>
+      <button class="btn btn-secondary" id="live-reset-btn" title="Reset current session">
+        ${ICONS.refresh} Reset
+      </button>
+      <button class="btn btn-secondary" id="live-snapshot-btn" title="Save snapshot to reports">
+        ${ICONS.camera} Snapshot
+      </button>
+    `;
+  }
+
+  return `
+    <button class="btn btn-secondary" id="live-pause-btn">
+      ${ICONS.pause} Pause
+    </button>
+    <button class="btn btn-danger" id="live-stop-btn">
+      ${ICONS.stop} Stop Monitoring
+    </button>
+    <button class="btn btn-secondary" id="live-reset-btn" title="Reset current session">
+      ${ICONS.refresh} Reset
+    </button>
+    <button class="btn btn-secondary" id="live-snapshot-btn" title="Save snapshot to reports">
+      ${ICONS.camera} Snapshot
+    </button>
+  `;
 }
 
 function getStatusColor(status) {
@@ -242,12 +327,10 @@ function initLiveCameraAndCanvas(container) {
   const videoEl = container.querySelector("#webcam-video");
   const canvasEl = container.querySelector("#overlay-canvas");
 
-  // Only start camera automatically if session was already active (e.g. from Dashboard launch)
-  if (appState.isMonitoring) {
+  if (appState.isMonitoring && !appState.isPaused) {
     visionEngine.startCamera(videoEl, canvasEl);
   }
 
-  // Setup periodic UI update loop (every 60ms)
   if (liveUpdateInterval) clearInterval(liveUpdateInterval);
   liveUpdateInterval = setInterval(() => {
     updateLiveTelemetryUI(container);
@@ -265,16 +348,24 @@ function updateLiveTelemetryUI(container) {
 
   const status = appState.driverStatus;
   const isAlert = status === "ALERT";
-  const isWarn = status === "POSSIBLE DROWSINESS" || status === "FACE NOT DETECTED";
-  const isCamError = status === "CAMERA ERROR";
+  const isCaution = status === "POSSIBLE DROWSINESS";
 
   // Elements
   const viewport = container.querySelector("#live-video-viewport");
   const alertBanner = container.querySelector("#hud-alert-banner");
+  const alertTitle = container.querySelector("#hud-alert-title");
+  const alertType = container.querySelector("#hud-alert-type");
+  const alertDesc = container.querySelector("#hud-alert-desc");
   const closureDisplay = container.querySelector("#live-closure-display");
   const closureProgress = container.querySelector("#live-closure-progress");
   const earText = container.querySelector("#hud-ear-text");
   const earBadge = container.querySelector("#live-ear-badge");
+  const marText = container.querySelector("#hud-mar-text");
+  const marVal = container.querySelector("#live-mar-val");
+  const yawnBadge = container.querySelector("#live-yawn-badge");
+  const yawnCountEl = container.querySelector("#live-yawn-count");
+  const pitchVal = container.querySelector("#live-pitch-val");
+  const headBadge = container.querySelector("#live-headdrop-badge");
   const eyeStateText = container.querySelector("#hud-eye-state-text");
   const statusText = container.querySelector("#hud-status-text");
   const statusDot = container.querySelector("#hud-status-dot");
@@ -285,8 +376,14 @@ function updateLiveTelemetryUI(container) {
   const sessionAlertsEl = container.querySelector("#live-session-alerts");
   const faceBadge = container.querySelector("#live-face-badge");
   const errorOverlay = container.querySelector("#camera-error-overlay");
+  const audioWarning = container.querySelector("#hud-audio-warning");
 
-  // Video container alert active state
+  // Audio restriction notification
+  if (audioWarning) {
+    audioWarning.style.display = appState.audioBlocked ? "flex" : "none";
+  }
+
+  // Red alert border for Critical alert
   if (viewport) {
     if (isAlert) {
       viewport.classList.add("alert-active");
@@ -295,18 +392,34 @@ function updateLiveTelemetryUI(container) {
     }
   }
 
-  // HUD Alert Banner
+  // Visual Warning Banner
   if (alertBanner) {
     if (isAlert) {
-      alertBanner.classList.add("active");
+      alertBanner.className = "hud-alert-banner active";
+      if (alertTitle) alertTitle.textContent = "DROWSINESS DETECTED!";
+      if (alertType) alertType.textContent = appState.activeWarningType || "PROLONGED EYE CLOSURE";
+      if (alertDesc) alertDesc.textContent = `EYE CLOSURE: ${appState.closureSeconds.toFixed(1)}s &bull; WAKE UP IMMEDIATELY`;
+    } else if (isCaution && (appState.isYawning || appState.isHeadDrop || appState.closureSeconds >= 0.35)) {
+      alertBanner.className = "hud-alert-banner active caution";
+      if (alertTitle) alertTitle.textContent = "POSSIBLE DROWSINESS WARNING";
+      if (alertType) alertType.textContent = appState.activeWarningType || "FATIGUE ADVISORY";
+      if (alertDesc) {
+        if (appState.isYawning) {
+          alertDesc.textContent = `SUSTAINED YAWN: ${appState.yawnDurationSec.toFixed(1)}s &bull; TAKE A REST BREAK`;
+        } else if (appState.isHeadDrop) {
+          alertDesc.textContent = `HEAD DROP DETECTED &bull; LIFT HEAD & STAY ATTENTIVE`;
+        } else {
+          alertDesc.textContent = `EYE CLOSURE: ${appState.closureSeconds.toFixed(1)}s &bull; STAY ATTENTIVE`;
+        }
+      }
     } else {
-      alertBanner.classList.remove("active");
+      alertBanner.className = "hud-alert-banner";
     }
   }
 
-  // Camera error overlay sync
+  // Error overlay sync
   if (errorOverlay) {
-    if (isCamError) {
+    if (status === "CAMERA ERROR") {
       errorOverlay.style.display = "flex";
       const desc = container.querySelector("#camera-error-desc");
       if (desc && appState.cameraError) desc.textContent = appState.cameraError;
@@ -318,13 +431,13 @@ function updateLiveTelemetryUI(container) {
   // Timer & progress bar
   if (closureDisplay) {
     closureDisplay.textContent = `${appState.closureSeconds.toFixed(1)}s`;
-    closureDisplay.className = `timer-large tabular-nums ${isAlert ? 'danger' : isWarn ? 'warn' : ''}`;
+    closureDisplay.className = `timer-large tabular-nums ${isAlert ? 'danger' : isCaution ? 'warn' : ''}`;
   }
 
   if (closureProgress) {
     const percent = Math.min(100, (appState.closureSeconds / appState.settings.drowsinessDurationSec) * 100);
     closureProgress.style.width = `${percent}%`;
-    closureProgress.className = `closure-progress-fill ${isAlert ? 'danger' : isWarn ? 'warn' : ''}`;
+    closureProgress.className = `closure-progress-fill ${isAlert ? 'danger' : isCaution ? 'warn' : ''}`;
   }
 
   // Status text & dot
@@ -334,6 +447,22 @@ function updateLiveTelemetryUI(container) {
   // EAR metrics
   if (earText) earText.textContent = appState.currentEar.toFixed(2);
   if (earBadge) earBadge.textContent = appState.currentEar.toFixed(2);
+
+  // MAR & Yawn telemetry
+  if (marText) marText.textContent = appState.currentMar.toFixed(2);
+  if (marVal) marVal.textContent = appState.currentMar.toFixed(2);
+  if (yawnBadge) {
+    yawnBadge.className = `badge ${appState.isYawning ? 'badge-warn' : 'badge-neutral'}`;
+    yawnBadge.textContent = appState.isYawning ? 'Yawning' : 'Normal';
+  }
+  if (yawnCountEl) yawnCountEl.textContent = appState.yawnCount;
+
+  // Head Pitch telemetry
+  if (pitchVal) pitchVal.textContent = appState.headPitch.toFixed(2);
+  if (headBadge) {
+    headBadge.className = `badge ${appState.isHeadDrop ? 'badge-danger' : 'badge-safe'}`;
+    headBadge.textContent = appState.isHeadDrop ? 'Downward Nod' : 'Upright';
+  }
 
   // Eye state
   if (eyeStateText) {
@@ -377,7 +506,7 @@ function drawEARWaveform(container) {
   const history = visionEngine.earHistory;
   if (!history || history.length < 2) return;
 
-  // Draw threshold line (e.g. 0.22)
+  // Threshold line
   const thresholdY = h - (appState.settings.earThreshold / 0.45) * h;
   ctx.strokeStyle = "rgba(239, 68, 68, 0.6)";
   ctx.lineWidth = 1;
@@ -388,7 +517,7 @@ function drawEARWaveform(container) {
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // Draw waveform curve
+  // Waveform line
   ctx.beginPath();
   ctx.lineWidth = 2;
   const isAlert = appState.driverStatus === "ALERT";
@@ -404,7 +533,7 @@ function drawEARWaveform(container) {
   });
   ctx.stroke();
 
-  // Glow fill under waveform
+  // Glow fill
   ctx.lineTo((history.length - 1) * step, h);
   ctx.lineTo(0, h);
   ctx.closePath();
@@ -421,37 +550,11 @@ function bindLiveButtons(container) {
   const standbyOverlay = container.querySelector("#camera-standby-overlay");
   const errorOverlay = container.querySelector("#camera-error-overlay");
 
-  const updateActionButtonUI = (isMonitoring) => {
+  const updateActionButtonGroup = () => {
     const actionGroup = container.querySelector("#live-action-buttons");
     if (!actionGroup) return;
 
-    if (isMonitoring) {
-      actionGroup.innerHTML = `
-        <button class="btn btn-danger" id="live-stop-btn">
-          ${ICONS.stop} Stop Monitoring
-        </button>
-        <button class="btn btn-secondary" id="live-reset-btn" title="Reset current session">
-          ${ICONS.refresh} Reset
-        </button>
-        <button class="btn btn-secondary" id="live-snapshot-btn" title="Save snapshot to reports">
-          ${ICONS.camera} Snapshot
-        </button>
-      `;
-    } else {
-      actionGroup.innerHTML = `
-        <button class="btn btn-primary" id="live-start-btn">
-          ${ICONS.play} Start Monitoring
-        </button>
-        <button class="btn btn-secondary" id="live-reset-btn" title="Reset current session">
-          ${ICONS.refresh} Reset
-        </button>
-        <button class="btn btn-secondary" id="live-snapshot-btn" title="Save snapshot to reports">
-          ${ICONS.camera} Snapshot
-        </button>
-      `;
-    }
-
-    // Rebind newly created buttons
+    actionGroup.innerHTML = renderControlButtons(appState.isMonitoring, appState.isPaused);
     rebindActionGroup();
   };
 
@@ -467,10 +570,23 @@ function bindLiveButtons(container) {
         const desc = container.querySelector("#camera-error-desc");
         if (desc) desc.textContent = res.error;
       }
-      updateActionButtonUI(false);
+      updateActionButtonGroup();
     } else {
-      updateActionButtonUI(true);
+      updateActionButtonGroup();
     }
+  };
+
+  const pauseMonitoringHandler = () => {
+    appState.pauseSession();
+    soundManager.stopDrowsinessAlert();
+    updateActionButtonGroup();
+    showToast("Monitoring Paused", "Vision telematics paused. Click Resume to continue.", "info");
+  };
+
+  const resumeMonitoringHandler = () => {
+    appState.resumeSession();
+    updateActionButtonGroup();
+    showToast("Monitoring Resumed", "Vision telematics active.", "safe");
   };
 
   const stopMonitoringHandler = () => {
@@ -484,33 +600,46 @@ function bindLiveButtons(container) {
         appState.stopSession();
         if (standbyOverlay) standbyOverlay.style.display = "flex";
         if (errorOverlay) errorOverlay.style.display = "none";
-        updateActionButtonUI(false);
+        updateActionButtonGroup();
         showToast("Session Saved", "Monitoring session logged to reports.", "safe");
       }
     });
   };
 
+  const resetSessionHandler = () => {
+    // Show confirmation before resetting if recorded information will be lost
+    if (appState.sessionDurationSec > 0 || appState.sessionWarningsCount > 0 || appState.yawnCount > 0) {
+      showConfirmModal({
+        title: "Reset Current Monitoring Session?",
+        message: "Are you sure you want to reset this session? All active session timers, yawn counts, and recorded warning incidents will be cleared.",
+        confirmText: "Reset Session",
+        isDanger: true,
+        onConfirm: () => {
+          appState.resetSession();
+          showToast("Session Reset", "Telemetry timers and counts cleared.", "info");
+        }
+      });
+    } else {
+      appState.resetSession();
+      showToast("Session Reset", "Telemetry timers cleared.", "info");
+    }
+  };
+
   const rebindActionGroup = () => {
     const startBtn = container.querySelector("#live-start-btn");
-    if (startBtn) {
-      startBtn.onclick = startMonitoringHandler;
-    }
+    if (startBtn) startBtn.onclick = startMonitoringHandler;
+
+    const pauseBtn = container.querySelector("#live-pause-btn");
+    if (pauseBtn) pauseBtn.onclick = pauseMonitoringHandler;
+
+    const resumeBtn = container.querySelector("#live-resume-btn");
+    if (resumeBtn) resumeBtn.onclick = resumeMonitoringHandler;
 
     const stopBtn = container.querySelector("#live-stop-btn");
-    if (stopBtn) {
-      stopBtn.onclick = stopMonitoringHandler;
-    }
+    if (stopBtn) stopBtn.onclick = stopMonitoringHandler;
 
     const resetBtn = container.querySelector("#live-reset-btn");
-    if (resetBtn) {
-      resetBtn.onclick = () => {
-        appState.sessionDurationSec = 0;
-        appState.sessionWarningsCount = 0;
-        appState.closureSeconds = 0.0;
-        appState.blinkCount = 0;
-        showToast("Session Reset", "Telemetry timers and counters cleared.", "info");
-      };
-    }
+    if (resetBtn) resetBtn.onclick = resetSessionHandler;
 
     const snapBtn = container.querySelector("#live-snapshot-btn");
     if (snapBtn) {
@@ -518,9 +647,11 @@ function bindLiveButtons(container) {
         const snapEvent = {
           timestamp: new Date().toLocaleTimeString("en-US", { hour12: false }),
           type: "MANUAL_SNAPSHOT",
+          typeLabel: "Manual Telemetry Snapshot",
           duration: "0.0s",
           ear: Number(appState.currentEar.toFixed(2)),
-          severity: "Info",
+          mar: Number(appState.currentMar.toFixed(2)),
+          severity: "Caution",
           isSample: appState.monitoringMode === "sample"
         };
         appState.recentEvents.unshift(snapEvent);
@@ -529,22 +660,28 @@ function bindLiveButtons(container) {
     }
   };
 
-  // Initial binding
   rebindActionGroup();
 
   // Standby overlay start button
   const standbyStartBtn = container.querySelector("#standby-start-btn");
-  if (standbyStartBtn) {
-    standbyStartBtn.onclick = startMonitoringHandler;
-  }
+  if (standbyStartBtn) standbyStartBtn.onclick = startMonitoringHandler;
 
   // Error overlay retry button
   const errorRetryBtn = container.querySelector("#camera-error-retry-btn");
-  if (errorRetryBtn) {
-    errorRetryBtn.onclick = startMonitoringHandler;
+  if (errorRetryBtn) errorRetryBtn.onclick = startMonitoringHandler;
+
+  // Audio restriction click-to-activate banner
+  const audioBanner = container.querySelector("#hud-audio-warning");
+  if (audioBanner) {
+    audioBanner.onclick = () => {
+      soundManager.initContext().then(() => {
+        audioBanner.style.display = "none";
+        showToast("Audio Active", "Emergency audible alerts enabled.", "safe");
+      });
+    };
   }
 
-  // Mode Switch (Webcam vs Benchmark)
+  // Mode Switch
   const modeSwitchBtn = container.querySelector("#live-switch-mode-btn");
   if (modeSwitchBtn) {
     modeSwitchBtn.onclick = () => {
@@ -573,11 +710,9 @@ function bindLiveButtons(container) {
   const muteBtn = container.querySelector("#live-alarm-mute-btn");
   if (muteBtn) {
     muteBtn.onclick = () => {
-      const isEnabled = !appState.settings.alarmEnabled;
-      appState.saveSettings({ alarmEnabled: isEnabled });
+      const isEnabled = soundManager.toggleMute();
       muteBtn.innerHTML = isEnabled ? ICONS.bell : ICONS.bellOff;
       muteBtn.title = isEnabled ? "Mute Alert Audio" : "Unmute Alert Audio";
-      showToast("Audio Alert", isEnabled ? "Alert sounds enabled" : "Alert sounds muted", isEnabled ? "safe" : "warn");
     };
   }
 }

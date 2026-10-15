@@ -1,5 +1,5 @@
 /* ==========================================================================
-   COMPUTER VISION, MEDIAPIPE FACE LANDMARKER & EAR DETECTION ENGINE
+   COMPUTER VISION, MEDIAPIPE FACE LANDMARKER, YAWNING & HEAD POSE ENGINE
    ========================================================================== */
 
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
@@ -33,13 +33,59 @@ function computeEAR(eyeLandmarks) {
   return (vert1 + vert2) / (2.0 * horiz);
 }
 
-// Full 16-point eye contours for aesthetic automotive wireframe overlay
+/**
+ * Mouth Aspect Ratio (MAR) for Yawning Detection:
+ * MAR = ( ||p13 - p14|| + ||p82 - p87|| + ||p312 - p317|| ) / ( 2 * ||p61 - p291|| )
+ */
+function computeMAR(pts) {
+  if (!pts || pts.length < 320) return 0.18;
+  const p13 = pts[13];   // Top inner center
+  const p14 = pts[14];   // Bottom inner center
+  const p82 = pts[82];   // Top inner left
+  const p87 = pts[87];   // Bottom inner left
+  const p312 = pts[312]; // Top inner right
+  const p317 = pts[317]; // Bottom inner right
+  const p61 = pts[61];   // Left mouth corner
+  const p291 = pts[291]; // Right mouth corner
+
+  const vert1 = distance(p13, p14);
+  const vert2 = distance(p82, p87);
+  const vert3 = distance(p312, p317);
+  const horiz = distance(p61, p291);
+
+  if (horiz === 0) return 0.18;
+  return (vert1 + vert2 + vert3) / (2.0 * horiz);
+}
+
+/**
+ * Head Pose Pitch (Vertical Nod) Estimation from 3D Facial Landmarks:
+ * Forehead (10), Nose tip (1), Chin bottom (152)
+ */
+function computeHeadPitch(pts) {
+  if (!pts || pts.length < 155) return 1.05;
+  const forehead = pts[10];
+  const nose = pts[1];
+  const chin = pts[152];
+
+  const upperDist = nose.y - forehead.y;
+  const lowerDist = chin.y - nose.y;
+
+  if (upperDist <= 0) return 1.0;
+  // In upright posture: ratio is ~ 1.0 - 1.25.
+  // In downward head drop (nodding off): nose gets closer to chin, ratio drops < 0.65.
+  return lowerDist / upperDist;
+}
+
+// 16-point eye contours for automotive wireframe overlays
 const LEFT_EYE_FULL_CONTOUR = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246];
 const RIGHT_EYE_FULL_CONTOUR = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398];
 
 // 6 key landmark indices used specifically for EAR calculation
 const LEFT_EYE_EAR_INDICES = [33, 160, 158, 133, 153, 144];
 const RIGHT_EYE_EAR_INDICES = [362, 385, 387, 263, 373, 380];
+
+// Outer and inner lips contours for mouth rendering
+const MOUTH_LIPS_CONTOUR = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0, 37, 39, 40, 185];
 
 class VisionEngine {
   constructor() {
@@ -53,20 +99,28 @@ class VisionEngine {
     this.faceLandmarker = null;
     this.isLandmarkerReady = false;
     this.isInitializingLandmarker = false;
-    this.faceMesh = null; // Legacy CDN fallback
+    this.faceMesh = null; // CDN fallback
     this.isFaceMeshReady = false;
 
     // Frame timing & temporal smoothing
     this.lastFrameTime = performance.now();
     this.smoothedEar = 0.28;
+    this.smoothedMar = 0.18;
+    this.smoothedPitch = 1.05;
     this.earHistory = [];
     this.historyMaxPoints = 50;
 
-    // Blink & Drowsiness tracking
+    // Duration trackers
     this.consecutiveClosedSeconds = 0.0;
+    this.continuousYawnDuration = 0.0;
+    this.continuousHeadDropDuration = 0.0;
     this.lastFaceSeenTime = performance.now();
-    this.faceLossGraceSec = 0.75; // 750ms tolerance for momentary head movement/camera drop
-    this.lastWarningLoggedTime = 0;
+    this.faceLossGraceSec = 0.75; // 750ms tolerance for momentary head movement
+
+    // Incident latches (ensures ONE record per sustained event, avoiding duplicates on every frame)
+    this.closureIncidentActive = false;
+    this.yawnIncidentActive = false;
+    this.headDropIncidentActive = false;
 
     // Benchmark simulation state
     this.simCycleTimer = 0;
@@ -74,8 +128,8 @@ class VisionEngine {
     // Device list
     this.videoDevices = [];
 
-    // OpenCV auxiliary readiness
-    this.hasLoggedOpenCV = false;
+    // Lighting check
+    this.lowLightDetected = false;
   }
 
   /**
@@ -174,13 +228,6 @@ class VisionEngine {
   }
 
   /**
-   * Check if OpenCV.js is loaded and available in window.cv
-   */
-  isOpenCVAvailable() {
-    return typeof window !== "undefined" && window.cv && typeof window.cv.Mat === "function";
-  }
-
-  /**
    * Start optical camera stream and detection processing
    */
   async startCamera(videoEl, canvasEl) {
@@ -190,9 +237,19 @@ class VisionEngine {
 
     // Reset runtime timers and states
     this.consecutiveClosedSeconds = 0.0;
+    this.continuousYawnDuration = 0.0;
+    this.continuousHeadDropDuration = 0.0;
+    this.closureIncidentActive = false;
+    this.yawnIncidentActive = false;
+    this.headDropIncidentActive = false;
     this.smoothedEar = 0.28;
+    this.smoothedMar = 0.18;
+    this.smoothedPitch = 1.05;
     this.lastFaceSeenTime = performance.now();
     appState.cameraError = null;
+
+    // Initialize Web Audio early on user gesture
+    soundManager.initContext();
 
     if (appState.monitoringMode === "sample") {
       appState.cameraConnected = true;
@@ -230,10 +287,8 @@ class VisionEngine {
 
       if (this.videoElement) {
         this.videoElement.srcObject = this.stream;
-        // Wait for video metadata to load dimensions properly
         await new Promise((resolve) => {
           this.videoElement.onloadedmetadata = () => resolve();
-          // Fallback resolve after 400ms if event already fired
           setTimeout(resolve, 400);
         });
         await this.videoElement.play();
@@ -244,7 +299,6 @@ class VisionEngine {
       appState.driverStatus = "ATTENTIVE";
       showToast("Camera Connected", "Optical sensor locked. Initiating neural face tracker...", "safe");
 
-      // Asynchronously trigger FaceLandmarker initialization
       this.initFaceLandmarker().then((ready) => {
         if (!ready) {
           this.initFaceMesh();
@@ -303,6 +357,11 @@ class VisionEngine {
     appState.eyeState = "UNDETECTED";
     appState.closureSeconds = 0.0;
     this.consecutiveClosedSeconds = 0.0;
+    this.continuousYawnDuration = 0.0;
+    this.continuousHeadDropDuration = 0.0;
+    this.closureIncidentActive = false;
+    this.yawnIncidentActive = false;
+    this.headDropIncidentActive = false;
   }
 
   /**
@@ -314,6 +373,14 @@ class VisionEngine {
 
       const delta = Math.min(0.2, (timestamp - this.lastFrameTime) / 1000);
       this.lastFrameTime = timestamp;
+
+      // Handle Paused state gracefully
+      if (appState.isPaused) {
+        soundManager.stopDrowsinessAlert();
+        this.drawPausedOverlay();
+        this.animFrameId = requestAnimationFrame(loop);
+        return;
+      }
 
       if (appState.monitoringMode === "sample") {
         this.processSimulationFrame(delta);
@@ -361,11 +428,11 @@ class VisionEngine {
         await this.faceMesh.send({ image: this.videoElement });
         return;
       } catch (err) {
-        // Fallback to OpenCV / Canvas tracker below
+        // Fallback to Canvas tracker below
       }
     }
 
-    // 3. Tertiary fallback: Browser OpenCV / Canvas Computer Vision Analyzer
+    // 3. Tertiary fallback: Canvas Computer Vision Analyzer
     this.processFallbackCV(width, height, delta);
   }
 
@@ -385,7 +452,7 @@ class VisionEngine {
       z: p.z || 0
     }));
 
-    // Calculate EAR for left and right eyes
+    // 1. Eye Aspect Ratio (EAR)
     const leftEyePts = LEFT_EYE_EAR_INDICES.map((i) => pts[i]);
     const rightEyePts = RIGHT_EYE_EAR_INDICES.map((i) => pts[i]);
     const leftEAR = computeEAR(leftEyePts);
@@ -402,21 +469,29 @@ class VisionEngine {
       appState.blinkScore = Number(blinkScore.toFixed(2));
     }
 
-    // Apply temporal Exponential Moving Average (EMA) smoothing
-    const alpha = 0.7; // Responsive yet filtering out single-frame jitter
-    this.smoothedEar = alpha * avgEAR + (1 - alpha) * this.smoothedEar;
-
+    // Temporal smoothing on EAR
+    const alphaEar = 0.70;
+    this.smoothedEar = alphaEar * avgEAR + (1 - alphaEar) * this.smoothedEar;
     appState.leftEar = Number(leftEAR.toFixed(2));
     appState.rightEar = Number(rightEAR.toFixed(2));
     appState.currentEar = Number(this.smoothedEar.toFixed(2));
 
-    // Evaluate blink vs prolonged closure logic
-    this.evaluateDrowsinessLogic(this.smoothedEar, blinkScore, delta);
+    // 2. Mouth Aspect Ratio (MAR) for Yawning
+    const rawMAR = computeMAR(pts);
+    const alphaMar = 0.70;
+    this.smoothedMar = alphaMar * rawMAR + (1 - alphaMar) * this.smoothedMar;
+    appState.currentMar = Number(this.smoothedMar.toFixed(2));
 
-    // Optional OpenCV image processing auxiliary enhancement
-    this.runOpenCVAuxiliaryCheck();
+    // 3. Head Pitch Estimation
+    const rawPitch = computeHeadPitch(pts);
+    const alphaPitch = 0.75;
+    this.smoothedPitch = alphaPitch * rawPitch + (1 - alphaPitch) * this.smoothedPitch;
+    appState.headPitch = Number(this.smoothedPitch.toFixed(2));
 
-    // Render automotive HUD overlays & landmarks on canvas
+    // 4. Integrated Drowsiness, Yawning & Head Position Logic
+    this.evaluateUnifiedDrowsinessLogic(this.smoothedEar, blinkScore, this.smoothedMar, this.smoothedPitch, delta);
+
+    // 5. Render automotive HUD overlays & landmarks on canvas
     this.drawFaceLandmarkOverlay(pts, leftEyePts, rightEyePts, width, height);
   }
 
@@ -445,14 +520,20 @@ class VisionEngine {
       const rightEAR = computeEAR(rightEyePts);
       const avgEAR = (leftEAR + rightEAR) / 2;
 
-      const alpha = 0.7;
-      this.smoothedEar = alpha * avgEAR + (1 - alpha) * this.smoothedEar;
-
+      this.smoothedEar = 0.7 * avgEAR + 0.3 * this.smoothedEar;
       appState.leftEar = Number(leftEAR.toFixed(2));
       appState.rightEar = Number(rightEAR.toFixed(2));
       appState.currentEar = Number(this.smoothedEar.toFixed(2));
 
-      this.evaluateDrowsinessLogic(this.smoothedEar, null, 0.033);
+      const rawMAR = computeMAR(pts);
+      this.smoothedMar = 0.7 * rawMAR + 0.3 * this.smoothedMar;
+      appState.currentMar = Number(this.smoothedMar.toFixed(2));
+
+      const rawPitch = computeHeadPitch(pts);
+      this.smoothedPitch = 0.75 * rawPitch + 0.25 * this.smoothedPitch;
+      appState.headPitch = Number(this.smoothedPitch.toFixed(2));
+
+      this.evaluateUnifiedDrowsinessLogic(this.smoothedEar, null, this.smoothedMar, this.smoothedPitch, 0.033);
       this.drawFaceLandmarkOverlay(pts, leftEyePts, rightEyePts, width, height);
     } else {
       this.handleFaceLoss(width, height, 0.033);
@@ -466,8 +547,7 @@ class VisionEngine {
     const timeSinceFace = (performance.now() - this.lastFaceSeenTime) / 1000;
 
     if (timeSinceFace < this.faceLossGraceSec) {
-      // Temporary frame loss grace period (e.g. quick head movement or lighting flicker)
-      // Maintain previous state to avoid UI jitter
+      // Temporary frame loss grace period: maintain state to avoid UI flutter
       return;
     }
 
@@ -475,24 +555,33 @@ class VisionEngine {
     appState.faceDetected = false;
     appState.eyeState = "UNDETECTED";
     appState.driverStatus = "FACE NOT DETECTED";
+    appState.activeWarningType = "FACE NOT DETECTED";
 
     // Crucial: reset continuous closure timer so lost face does not trigger false drowsiness
     this.consecutiveClosedSeconds = 0.0;
+    this.continuousYawnDuration = 0.0;
+    this.continuousHeadDropDuration = 0.0;
+    this.closureIncidentActive = false;
+    this.yawnIncidentActive = false;
+    this.headDropIncidentActive = false;
     appState.closureSeconds = 0.0;
+    appState.isYawning = false;
+    appState.isHeadDrop = false;
     soundManager.stopDrowsinessAlert();
 
     this.drawLostFaceWarning(width, height);
   }
 
   /**
-   * Drowsiness Detection Logic:
-   * Distinguishes natural blinking (<0.35s) from prolonged closure (>=2.0s)
+   * Unified Drowsiness, Yawning & Head Position Logic Engine
+   * Classifies normal blinking, yawning, head nods, and prolonged eye closures.
+   * Employs incident latching to prevent duplicate event spam on continuous frames.
    */
-  evaluateDrowsinessLogic(earVal, blendshapeBlinkScore, delta) {
+  evaluateUnifiedDrowsinessLogic(earVal, blendshapeBlinkScore, marVal, pitchVal, delta) {
     const earThreshold = appState.settings.earThreshold;
     const alertThreshold = appState.settings.drowsinessDurationSec;
 
-    // Dual-criteria eye closure determination
+    // 1. Eye Closure Evaluation
     const isClosedByEar = earVal < earThreshold;
     const isClosedByBlendshape = blendshapeBlinkScore !== null && blendshapeBlinkScore > 0.65;
     const isEyeClosed = isClosedByEar || isClosedByBlendshape;
@@ -502,57 +591,152 @@ class VisionEngine {
       appState.closureSeconds = Number(this.consecutiveClosedSeconds.toFixed(1));
 
       if (this.consecutiveClosedSeconds < 0.35) {
-        // Natural blink in progress
+        // Natural conscious/unconscious blink in progress
         appState.eyeState = "BLINKING";
-        appState.driverStatus = "ATTENTIVE";
-      } else if (this.consecutiveClosedSeconds < alertThreshold) {
-        // Possible drowsiness / micro-sleep warning
-        appState.eyeState = "CLOSED";
-        appState.driverStatus = "POSSIBLE DROWSINESS";
-        soundManager.stopDrowsinessAlert();
       } else {
-        // Prolonged closure >= threshold => Critical ALERT
         appState.eyeState = "CLOSED";
-        appState.driverStatus = "ALERT";
-        soundManager.startDrowsinessAlert();
-
-        const now = Date.now();
-        if (now - this.lastWarningLoggedTime > 4000) {
-          appState.recordWarningEvent(this.consecutiveClosedSeconds, earVal);
-          this.lastWarningLoggedTime = now;
-        }
       }
     } else {
-      // Eyes are open
+      // Natural blink completed
       if (this.consecutiveClosedSeconds >= 0.08 && this.consecutiveClosedSeconds < 0.35) {
-        // Complete natural blink counted
         appState.blinkCount++;
       }
-
       this.consecutiveClosedSeconds = 0.0;
       appState.closureSeconds = 0.0;
       appState.eyeState = "OPEN";
+      this.closureIncidentActive = false;
+    }
 
-      if (appState.driverStatus === "ALERT" || appState.driverStatus === "POSSIBLE DROWSINESS") {
-        soundManager.stopDrowsinessAlert();
+    // 2. Yawning Detection (Mouth Opening Analysis)
+    if (appState.settings.yawnDetectionEnabled && appState.faceDetected) {
+      if (marVal >= appState.settings.marThreshold) {
+        this.continuousYawnDuration += delta;
+        appState.yawnDurationSec = Number(this.continuousYawnDuration.toFixed(1));
+
+        if (this.continuousYawnDuration >= appState.settings.yawnDurationSec) {
+          appState.isYawning = true;
+          if (!this.yawnIncidentActive) {
+            this.yawnIncidentActive = true;
+            appState.yawnCount++;
+            soundManager.playCautionChime();
+            appState.recordWarningEvent({
+              type: "YAWN_DETECTED",
+              typeLabel: "Frequent Yawning",
+              duration: this.continuousYawnDuration,
+              earValue: earVal,
+              marValue: marVal,
+              severity: "Caution"
+            });
+          }
+        }
+      } else {
+        if (this.continuousYawnDuration > 0) {
+          this.continuousYawnDuration = Math.max(0, this.continuousYawnDuration - delta * 2);
+        }
+        if (this.continuousYawnDuration === 0) {
+          appState.isYawning = false;
+          this.yawnIncidentActive = false;
+        }
       }
+    } else {
+      appState.isYawning = false;
+      this.continuousYawnDuration = 0.0;
+      this.yawnIncidentActive = false;
+    }
+
+    // 3. Head Position Monitoring (Downward Nodding / Tilt)
+    if (appState.settings.headPoseEnabled && appState.faceDetected) {
+      if (pitchVal <= appState.settings.headDropThreshold) {
+        this.continuousHeadDropDuration += delta;
+        appState.headDropDurationSec = Number(this.continuousHeadDropDuration.toFixed(1));
+
+        if (this.continuousHeadDropDuration >= appState.settings.headDropDurationSec) {
+          appState.isHeadDrop = true;
+          if (!this.headDropIncidentActive) {
+            this.headDropIncidentActive = true;
+            if (isEyeClosed) {
+              // Concurrent Head Drop + Eye Closure = Critical Microsleep Nod-Off
+              soundManager.startDrowsinessAlert("DROWSY_NOD_OFF");
+              appState.recordWarningEvent({
+                type: "DROWSY_NOD_OFF",
+                typeLabel: "Head Drop + Eye Closure",
+                duration: this.continuousHeadDropDuration,
+                earValue: earVal,
+                marValue: marVal,
+                severity: "Critical"
+              });
+            } else {
+              // Head Drop alone = Caution
+              soundManager.playCautionChime();
+              appState.recordWarningEvent({
+                type: "HEAD_DROP",
+                typeLabel: "Downward Head Position",
+                duration: this.continuousHeadDropDuration,
+                earValue: earVal,
+                marValue: marVal,
+                severity: "Caution"
+              });
+            }
+          }
+        }
+      } else {
+        if (this.continuousHeadDropDuration > 0) {
+          this.continuousHeadDropDuration = Math.max(0, this.continuousHeadDropDuration - delta * 2);
+        }
+        if (this.continuousHeadDropDuration === 0) {
+          appState.isHeadDrop = false;
+          this.headDropIncidentActive = false;
+        }
+      }
+    } else {
+      appState.isHeadDrop = false;
+      this.continuousHeadDropDuration = 0.0;
+      this.headDropIncidentActive = false;
+    }
+
+    // 4. Status Synthesis & Alert Triggering
+    if (this.consecutiveClosedSeconds >= alertThreshold || (appState.isHeadDrop && isEyeClosed)) {
+      // Critical Red Warning: Prolonged eye closure exceeded threshold
+      appState.driverStatus = "ALERT";
+      appState.activeWarningType = appState.isHeadDrop ? "HEAD DROP + EYE CLOSURE" : "PROLONGED EYE CLOSURE";
+      soundManager.startDrowsinessAlert(appState.activeWarningType);
+
+      if (!this.closureIncidentActive) {
+        this.closureIncidentActive = true;
+        appState.recordWarningEvent({
+          type: "ALERT",
+          typeLabel: "Prolonged Eye Closure",
+          duration: this.consecutiveClosedSeconds,
+          earValue: earVal,
+          marValue: marVal,
+          severity: "Critical"
+        });
+      }
+    } else if (appState.isHeadDrop) {
+      // Caution: Downward head nod
+      appState.driverStatus = "POSSIBLE DROWSINESS";
+      appState.activeWarningType = "HEAD NOD / DOWNWARD";
+      soundManager.stopDrowsinessAlert();
+    } else if (appState.isYawning) {
+      // Caution: Sustained yawning
+      appState.driverStatus = "POSSIBLE DROWSINESS";
+      appState.activeWarningType = "FREQUENT YAWNING";
+      soundManager.stopDrowsinessAlert();
+    } else if (this.consecutiveClosedSeconds >= 0.35) {
+      // Caution: Eye closure longer than normal blink, before threshold
+      appState.driverStatus = "POSSIBLE DROWSINESS";
+      appState.activeWarningType = "POSSIBLE DROWSINESS";
+      soundManager.stopDrowsinessAlert();
+    } else {
+      // Normal monitoring
       appState.driverStatus = "ATTENTIVE";
+      appState.activeWarningType = "";
+      soundManager.stopDrowsinessAlert();
     }
   }
 
   /**
-   * Optional OpenCV image processing check (runs when window.cv is loaded)
-   */
-  runOpenCVAuxiliaryCheck() {
-    if (!this.isOpenCVAvailable()) return;
-    if (!this.hasLoggedOpenCV) {
-      console.info("OpenCV.js detected and connected to vehicle vision telematics.");
-      this.hasLoggedOpenCV = true;
-    }
-  }
-
-  /**
-   * Canvas & OpenCV Computer Vision Fallback
+   * Canvas Computer Vision Fallback
    */
   processFallbackCV(width, height, delta) {
     if (!this.canvasCtx) return;
@@ -561,13 +745,11 @@ class VisionEngine {
     this.lastFaceSeenTime = performance.now();
     appState.faceDetected = true;
 
-    // Driver facial region coordinates
     const cx = width / 2;
     const cy = height * 0.45;
     const boxW = width * 0.42;
     const boxH = height * 0.55;
 
-    // Eye regions
     const leftEyeX = cx - boxW * 0.22;
     const rightEyeX = cx + boxW * 0.22;
     const eyesY = cy - boxH * 0.08;
@@ -577,7 +759,6 @@ class VisionEngine {
     let rightEar = 0.28;
 
     try {
-      // Analyze pixel luminance contrast in eye ROI
       const eyeImgData = this.canvasCtx.getImageData(
         Math.max(0, leftEyeX - eyeRadius),
         Math.max(0, eyesY - eyeRadius / 2),
@@ -592,6 +773,7 @@ class VisionEngine {
       const avgLum = totalLum / (data.length / 4 || 1);
       leftEar = Math.min(0.34, Math.max(0.14, 0.22 + (avgLum % 25) / 200));
       rightEar = leftEar;
+      this.lowLightDetected = avgLum < 20;
     } catch (e) {
       leftEar = 0.28;
       rightEar = 0.28;
@@ -599,21 +781,19 @@ class VisionEngine {
 
     const avgEAR = (leftEar + rightEar) / 2;
     this.smoothedEar = 0.7 * avgEAR + 0.3 * this.smoothedEar;
-
     appState.leftEar = Number(leftEar.toFixed(2));
     appState.rightEar = Number(rightEar.toFixed(2));
     appState.currentEar = Number(this.smoothedEar.toFixed(2));
 
-    this.evaluateDrowsinessLogic(this.smoothedEar, null, delta);
+    this.evaluateUnifiedDrowsinessLogic(this.smoothedEar, null, 0.20, 1.05, delta);
 
-    // Draw reticle and eye guides
     this.drawReticle(cx - boxW / 2, cy - boxH / 2, boxW, boxH, appState.driverStatus);
     this.drawEyeContour(leftEyeX, eyesY, eyeRadius, appState.eyeState !== "CLOSED");
     this.drawEyeContour(rightEyeX, eyesY, eyeRadius, appState.eyeState !== "CLOSED");
   }
 
   /**
-   * Benchmark Simulation Runner (Preview test telemetry)
+   * Benchmark Simulation Runner (Realistic test telemetry)
    */
   processSimulationFrame(delta) {
     this.simCycleTimer += delta;
@@ -625,30 +805,40 @@ class VisionEngine {
     this.canvasCtx.clearRect(0, 0, width, height);
 
     // Simulation cycle:
-    // 0s-7s: normal attentive driving (EAR ~0.29)
-    // 7s-10.5s: intentional prolonged eye closure (tests alarm buzzer)
-    // > 10.5s: return to attentive
-    const cycle = this.simCycleTimer % 14;
+    // 0s-6s: normal attentive driving (EAR ~0.29, MAR ~0.20, pitch ~1.10)
+    // 6s-9s: yawn test (MAR ~0.72)
+    // 9s-12s: prolonged eye closure test (EAR ~0.15)
+    // 12s-15s: return to attentive
+    const cycle = this.simCycleTimer % 15;
 
     let simEar = 0.3;
+    let simMar = 0.2;
+    let simPitch = 1.05;
     let simClosed = false;
 
-    if (cycle > 7 && cycle < 10.5) {
-      simEar = 0.16;
+    if (cycle >= 6 && cycle < 8.5) {
+      // Yawn simulation
+      simMar = 0.72;
+      simEar = 0.24;
+    } else if (cycle >= 9 && cycle < 12.2) {
+      // Prolonged eye closure
+      simEar = 0.15;
       simClosed = true;
     } else if (cycle % 2.5 < 0.25) {
+      // Quick natural blink
       simEar = 0.18;
       simClosed = true;
     } else {
       simEar = 0.29 + Math.sin(cycle * 3) * 0.02;
-      simClosed = false;
     }
 
     appState.currentEar = Number(simEar.toFixed(2));
     appState.leftEar = appState.currentEar;
     appState.rightEar = appState.currentEar;
+    appState.currentMar = Number(simMar.toFixed(2));
+    appState.headPitch = Number(simPitch.toFixed(2));
 
-    this.evaluateDrowsinessLogic(simEar, simClosed ? 0.85 : 0.05, delta);
+    this.evaluateUnifiedDrowsinessLogic(simEar, simClosed ? 0.85 : 0.05, simMar, simPitch, delta);
     this.renderSimulationWireframe(width, height, appState.driverStatus);
   }
 
@@ -677,7 +867,7 @@ class VisionEngine {
     const isWarn = appState.driverStatus === "POSSIBLE DROWSINESS";
     const themeColor = isAlert ? "#ef4444" : isWarn ? "#f59e0b" : "#06b6d4";
 
-    // 1. Calculate Face Bounding Box from Landmarks
+    // 1. Calculate Face Bounding Box
     let minX = width;
     let maxX = 0;
     let minY = height;
@@ -696,10 +886,9 @@ class VisionEngine {
     const boxW = Math.min(width - boxX, maxX - minX + padX * 2);
     const boxH = Math.min(height - boxY, maxY - minY + padY * 2);
 
-    // Draw automotive corner targeting brackets
     this.drawReticle(boxX, boxY, boxW, boxH, appState.driverStatus);
 
-    // 2. Draw Eye Contours with glowing nodes
+    // 2. Draw Eye Contours
     const drawEyePolygon = (indices, earPts) => {
       ctx.beginPath();
       const firstPt = pts[indices[0]];
@@ -742,9 +931,28 @@ class VisionEngine {
     drawEyePolygon(LEFT_EYE_FULL_CONTOUR, leftEyePts);
     drawEyePolygon(RIGHT_EYE_FULL_CONTOUR, rightEyePts);
 
-    // 3. Floating Automotive Telematics Tag above Driver's Head
+    // 3. Draw Mouth Contour (Turns amber when yawning)
+    if (appState.settings.yawnDetectionEnabled && pts.length > 410) {
+      ctx.beginPath();
+      const firstMouthPt = pts[MOUTH_LIPS_CONTOUR[0]];
+      ctx.moveTo(firstMouthPt.x, firstMouthPt.y);
+      for (let i = 1; i < MOUTH_LIPS_CONTOUR.length; i++) {
+        const pt = pts[MOUTH_LIPS_CONTOUR[i]];
+        ctx.lineTo(pt.x, pt.y);
+      }
+      ctx.closePath();
+      ctx.strokeStyle = appState.isYawning ? "#f59e0b" : "rgba(6, 182, 212, 0.35)";
+      ctx.lineWidth = appState.isYawning ? 2.5 : 1;
+      if (appState.isYawning) {
+        ctx.fillStyle = "rgba(245, 158, 11, 0.2)";
+        ctx.fill();
+      }
+      ctx.stroke();
+    }
+
+    // 4. Floating Automotive Telematics Tag
     ctx.font = "bold 11px ui-monospace, monospace";
-    const statusLabel = `EAR: ${appState.currentEar.toFixed(2)} | ${appState.driverStatus}`;
+    const statusLabel = `EAR: ${appState.currentEar.toFixed(2)} | MAR: ${appState.currentMar.toFixed(2)} | ${appState.driverStatus}`;
     const textWidth = ctx.measureText(statusLabel).width;
     const tagX = boxX + boxW / 2 - textWidth / 2 - 8;
     const tagY = Math.max(16, boxY - 14);
@@ -772,35 +980,21 @@ class VisionEngine {
     const isWarn = status === "POSSIBLE DROWSINESS";
     const color = isAlert ? "#ef4444" : isWarn ? "#f59e0b" : "#06b6d4";
 
-    // Dashed bounding box
     ctx.strokeStyle = isAlert ? "rgba(239, 68, 68, 0.4)" : "rgba(6, 182, 212, 0.35)";
     ctx.lineWidth = 1.5;
     ctx.setLineDash([6, 6]);
     ctx.strokeRect(x, y, w, h);
     ctx.setLineDash([]);
 
-    // Solid corner brackets
     const bLen = Math.min(24, w * 0.15);
     ctx.lineWidth = 3;
     ctx.strokeStyle = color;
 
-    // Top-left
+    // Brackets
     ctx.beginPath();
     ctx.moveTo(x, y + bLen); ctx.lineTo(x, y); ctx.lineTo(x + bLen, y);
-    ctx.stroke();
-
-    // Top-right
-    ctx.beginPath();
     ctx.moveTo(x + w - bLen, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + bLen);
-    ctx.stroke();
-
-    // Bottom-left
-    ctx.beginPath();
     ctx.moveTo(x, y + h - bLen); ctx.lineTo(x, y + h); ctx.lineTo(x + bLen, y + h);
-    ctx.stroke();
-
-    // Bottom-right
-    ctx.beginPath();
     ctx.moveTo(x + w - bLen, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - bLen);
     ctx.stroke();
 
@@ -837,7 +1031,6 @@ class VisionEngine {
     const cx = width / 2;
     const cy = height / 2;
 
-    // Pulsing searching ring
     ctx.strokeStyle = "#f59e0b";
     ctx.lineWidth = 3;
     ctx.setLineDash([8, 8]);
@@ -846,7 +1039,6 @@ class VisionEngine {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Warning icon
     ctx.fillStyle = "#f59e0b";
     ctx.font = "bold 24px sans-serif";
     ctx.textAlign = "center";
@@ -862,6 +1054,34 @@ class VisionEngine {
     ctx.restore();
   }
 
+  drawPausedOverlay() {
+    const ctx = this.canvasCtx;
+    if (!ctx || !this.canvasElement) return;
+    const width = this.canvasElement.width;
+    const height = this.canvasElement.height;
+
+    ctx.save();
+    ctx.fillStyle = "rgba(7, 13, 25, 0.75)";
+    ctx.fillRect(0, 0, width, height);
+
+    const cx = width / 2;
+    const cy = height / 2;
+
+    ctx.fillStyle = "#38bdf8";
+    ctx.font = "bold 28px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("⏸️", cx, cy - 15);
+
+    ctx.font = "bold 16px sans-serif";
+    ctx.fillText("MONITORING PAUSED", cx, cy + 30);
+
+    ctx.font = "12px sans-serif";
+    ctx.fillStyle = "#94a3b8";
+    ctx.fillText("Click Resume Monitoring to continue telematics processing", cx, cy + 54);
+
+    ctx.restore();
+  }
+
   renderSimulationWireframe(width, height, status) {
     const ctx = this.canvasCtx;
     if (!ctx) return;
@@ -872,7 +1092,6 @@ class VisionEngine {
     ctx.fillStyle = "rgba(7, 13, 25, 0.92)";
     ctx.fillRect(0, 0, width, height);
 
-    // Subtle cockpit telemetry grid
     ctx.strokeStyle = "rgba(30, 48, 82, 0.45)";
     ctx.lineWidth = 1;
     for (let x = 0; x < width; x += 40) {
@@ -886,22 +1105,29 @@ class VisionEngine {
     const isWarn = status === "POSSIBLE DROWSINESS";
     const color = isAlert ? "#ef4444" : isWarn ? "#f59e0b" : "#06b6d4";
 
-    // Driver avatar outline
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.ellipse(cx, cy, 110, 150, 0, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Eyes
     const eyesOpen = !isAlert && !isWarn;
     this.drawEyeContour(cx - 45, cy - 20, 24, eyesOpen);
     this.drawEyeContour(cx + 45, cy - 20, 24, eyesOpen);
 
-    // Target reticle
+    // Mouth
+    ctx.beginPath();
+    ctx.strokeStyle = appState.isYawning ? "#f59e0b" : "#06b6d4";
+    if (appState.isYawning) {
+      ctx.ellipse(cx, cy + 68, 20, 14, 0, 0, Math.PI * 2);
+    } else {
+      ctx.moveTo(cx - 25, cy + 65);
+      ctx.quadraticCurveTo(cx, cy + 72, cx + 25, cy + 65);
+    }
+    ctx.stroke();
+
     this.drawReticle(cx - 130, cy - 170, 260, 320, status);
 
-    // Watermark
     ctx.fillStyle = "rgba(148, 163, 184, 0.85)";
     ctx.font = "bold 13px ui-monospace, monospace";
     ctx.textAlign = "center";
