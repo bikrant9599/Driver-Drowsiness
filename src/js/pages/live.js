@@ -50,6 +50,20 @@ export function renderLivePage() {
             ${ICONS.bellOff} <span>Audio restricted by browser &bull; Click to allow alarm</span>
           </div>
 
+          <!-- In-Cabin Lighting & Face Visibility Notice -->
+          <div class="hud-lighting-notice" id="hud-lighting-notice" style="display: none;">
+            ⚠️ <span>Face Not Detected: Ensure adequate in-cabin lighting, remove reflective eyewear, and face the camera directly.</span>
+          </div>
+
+          <!-- Camera Initializing Overlay (shown while webcam stream & AI model load) -->
+          <div class="camera-initializing-overlay" id="camera-initializing-overlay" style="display: none;">
+            <div class="radar-pulse"></div>
+            <h3 style="margin-top: 1.25rem; font-size: 1.15rem; color: var(--text-primary); font-weight: 700;">Initializing Optical Sensor &amp; AI Mesh</h3>
+            <p style="font-size: 0.85rem; color: var(--text-muted); max-width: 400px; line-height: 1.5; margin-top: 0.4rem;">
+              Acquiring camera video stream and loading MediaPipe 478-point 3D facial landmark model. Please face the camera directly.
+            </p>
+          </div>
+
           <!-- Standby Overlay (shown before monitoring starts) -->
           <div class="camera-standby-overlay" id="camera-standby-overlay" style="${isLive ? 'display: none;' : 'display: flex;'}">
             <div class="standby-icon-orb">
@@ -326,9 +340,13 @@ function getEyeColor(eyeState) {
 function initLiveCameraAndCanvas(container) {
   const videoEl = container.querySelector("#webcam-video");
   const canvasEl = container.querySelector("#overlay-canvas");
+  const initializingOverlay = container.querySelector("#camera-initializing-overlay");
 
   if (appState.isMonitoring && !appState.isPaused) {
-    visionEngine.startCamera(videoEl, canvasEl);
+    if (initializingOverlay) initializingOverlay.style.display = "flex";
+    visionEngine.startCamera(videoEl, canvasEl).finally(() => {
+      if (initializingOverlay) initializingOverlay.style.display = "none";
+    });
   }
 
   if (liveUpdateInterval) clearInterval(liveUpdateInterval);
@@ -476,14 +494,21 @@ function updateLiveTelemetryUI(container) {
   if (blinkCountEl) blinkCountEl.textContent = appState.blinkCount;
   if (sessionAlertsEl) sessionAlertsEl.textContent = appState.sessionWarningsCount;
 
-  // Face detection badge
+  // In-Cabin Lighting & Face Visibility Guidance Notice
+  const lightingNotice = container.querySelector("#hud-lighting-notice");
+  if (lightingNotice) {
+    const showNotice = appState.isMonitoring && !appState.isPaused && (!appState.faceDetected || appState.driverStatus === "FACE NOT DETECTED");
+    lightingNotice.style.display = showNotice ? "flex" : "none";
+  }
+
+  // Face detection status badge
   if (faceBadge) {
     if (appState.faceDetected) {
       faceBadge.className = "badge badge-safe";
-      faceBadge.innerHTML = `<span class="badge-dot"></span> Face Locked`;
-    } else if (appState.isMonitoring) {
+      faceBadge.innerHTML = `<span class="badge-dot"></span> Face Locked (Tracking)`;
+    } else if (appState.isMonitoring && !appState.isPaused) {
       faceBadge.className = "badge badge-warn";
-      faceBadge.innerHTML = `<span class="badge-dot"></span> Searching Face`;
+      faceBadge.innerHTML = `<span class="badge-dot"></span> Searching Face (Check Light)`;
     } else {
       faceBadge.className = "badge badge-neutral";
       faceBadge.innerHTML = `<span class="badge-dot"></span> Standby`;
@@ -558,12 +583,23 @@ function bindLiveButtons(container) {
     rebindActionGroup();
   };
 
+  const initializingOverlay = container.querySelector("#camera-initializing-overlay");
+
   const startMonitoringHandler = async () => {
-    appState.startSession(appState.monitoringMode);
+    // Prevent starting multiple times simultaneously
+    if (appState.isMonitoring || visionEngine.isStartingCamera) return;
+
     if (standbyOverlay) standbyOverlay.style.display = "none";
     if (errorOverlay) errorOverlay.style.display = "none";
+    if (initializingOverlay) initializingOverlay.style.display = "flex";
+
+    appState.startSession(appState.monitoringMode);
+    updateActionButtonGroup();
 
     const res = await visionEngine.startCamera(videoEl, canvasEl);
+
+    if (initializingOverlay) initializingOverlay.style.display = "none";
+
     if (!res.success) {
       if (errorOverlay) {
         errorOverlay.style.display = "flex";

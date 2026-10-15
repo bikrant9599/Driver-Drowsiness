@@ -688,6 +688,10 @@ export function renderDashboardPage() {
     const startLiveBtn = container.querySelector("#dash-start-live-btn");
     if (startLiveBtn) {
       startLiveBtn.onclick = () => {
+        if (appState.isMonitoring || visionEngine.isStartingCamera) {
+          appState.setPage("live");
+          return;
+        }
         appState.startSession("real");
         appState.setPage("live");
       };
@@ -696,6 +700,10 @@ export function renderDashboardPage() {
     const emptyStartBtn = container.querySelector("#dash-empty-start-btn");
     if (emptyStartBtn) {
       emptyStartBtn.onclick = () => {
+        if (appState.isMonitoring || visionEngine.isStartingCamera) {
+          appState.setPage("live");
+          return;
+        }
         appState.startSession("real");
         appState.setPage("live");
       };
@@ -704,6 +712,10 @@ export function renderDashboardPage() {
     const startDemoBtn = container.querySelector("#dash-start-demo-btn");
     if (startDemoBtn) {
       startDemoBtn.onclick = () => {
+        if (appState.isMonitoring || visionEngine.isStartingCamera) {
+          appState.setPage("live");
+          return;
+        }
         appState.startSession("sample");
         appState.setPage("live");
       };

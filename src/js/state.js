@@ -26,7 +26,12 @@ const DEFAULT_SETTINGS = {
   // Head pose / position monitoring settings
   headPoseEnabled: true,
   headDropThreshold: 0.65,
-  headDropDurationSec: 1.2
+  headDropDurationSec: 1.2,
+
+  // Sensitivity Presets & Privacy Preferences
+  sensitivityPreset: "balanced", // high, balanced, low, custom
+  retentionPolicy: "persistent", // persistent, session_only
+  anonymousReports: true
 };
 
 class StateManager {
@@ -193,7 +198,11 @@ class StateManager {
 
   saveSessions() {
     try {
-      localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(this.sessions));
+      if (this.settings.retentionPolicy === "session_only") {
+        localStorage.removeItem(STORAGE_KEYS.SESSIONS);
+      } else {
+        localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(this.sessions));
+      }
     } catch (e) {
       console.error("Failed to persist sessions to localStorage:", e);
     }

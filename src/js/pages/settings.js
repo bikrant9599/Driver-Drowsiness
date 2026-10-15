@@ -2,7 +2,14 @@
    VIEW: SETTINGS
    ========================================================================== */
 
-import { ICONS, showConfirmModal, showToast } from "../utils.js";
+import {
+  ICONS,
+  formatDuration,
+  showConfirmModal,
+  showToast,
+  exportAllSessionsToCSV,
+  exportAllSessionsToPDF
+} from "../utils.js";
 import { appState } from "../state.js";
 import { soundManager } from "../audio.js";
 import { visionEngine } from "../vision.js";
@@ -12,13 +19,15 @@ export async function renderSettingsPage() {
   container.className = "settings-container fade-in";
 
   const cameras = await visionEngine.enumerateCameras();
+  const totalSessions = (appState.sessions || []).length;
+  const totalDuration = (appState.sessions || []).reduce((acc, s) => acc + (s.durationSeconds || 0), 0);
 
   container.innerHTML = `
     <!-- 1. Camera & Optical Sensor Hardware -->
     <div class="settings-section-card">
       <div class="card-header">
         <div class="card-title">
-          ${ICONS.camera} Camera & Optical Input
+          ${ICONS.camera} Camera &amp; Optical Input
         </div>
       </div>
 
@@ -29,7 +38,7 @@ export async function renderSettingsPage() {
             <div class="setting-desc">Select the optical camera sensor mounted facing the driver cockpit seat.</div>
           </div>
           <div class="setting-control" style="min-width: 260px;">
-            <select class="form-select" id="settings-camera-select">
+            <select class="form-select" id="settings-camera-select" aria-label="Select Camera Device">
               <option value="">Default System Camera</option>
               ${cameras
                 .map(
@@ -46,32 +55,90 @@ export async function renderSettingsPage() {
 
         <div class="setting-row">
           <div class="setting-info">
-            <div class="setting-title">Hardware Acceleration</div>
+            <div class="setting-title">Hardware Acceleration &amp; Engine</div>
             <div class="setting-desc">Utilize WebGL/WebGPU hardware acceleration for MediaPipe 478-point 3D landmark mesh.</div>
           </div>
           <div class="setting-control">
-            <span class="badge badge-safe"><span class="badge-dot"></span> Enabled (GPU Active)</span>
+            <span class="badge badge-safe"><span class="badge-dot"></span> Enabled (GPU WebGL Active)</span>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 2. Alarm & Audio Notification Settings -->
+    <!-- 2. Drowsiness Sensitivity & Presets -->
     <div class="settings-section-card">
       <div class="card-header">
         <div class="card-title">
-          ${ICONS.bell} Drowsiness Alarm & Warning Audio
+          ${ICONS.gauge} Drowsiness Sensitivity &amp; Eye-Closure Timing
+        </div>
+      </div>
+
+      <div class="settings-grid-rows">
+        <!-- Sensitivity Presets -->
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-title">Sensitivity Profile Preset</div>
+            <div class="setting-desc">Quickly configure threshold sensitivity for night driving, standard commuting, or highway cruising.</div>
+          </div>
+          <div class="setting-control" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button class="btn btn-sm ${appState.settings.sensitivityPreset === 'high' ? 'btn-primary' : 'btn-secondary'}" id="preset-high-btn" title="High sensitivity: 0.24 EAR, 1.5s duration">
+              High Sensitivity
+            </button>
+            <button class="btn btn-sm ${appState.settings.sensitivityPreset === 'balanced' ? 'btn-primary' : 'btn-secondary'}" id="preset-balanced-btn" title="Balanced sensitivity: 0.22 EAR, 2.0s duration">
+              Balanced (Default)
+            </button>
+            <button class="btn btn-sm ${appState.settings.sensitivityPreset === 'low' ? 'btn-primary' : 'btn-secondary'}" id="preset-low-btn" title="Low sensitivity: 0.19 EAR, 2.5s duration">
+              Low Sensitivity
+            </button>
+          </div>
+        </div>
+
+        <!-- Eye-Closure Warning Duration -->
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-title">Eye-Closure Warning Duration</div>
+            <div class="setting-desc">Consecutive seconds eyelids must remain closed before the system triggers the critical drowsiness alarm. (Default: 2.0s)</div>
+          </div>
+          <div class="setting-control">
+            <div class="range-with-val">
+              <input type="range" id="settings-duration-slider" min="1.0" max="4.0" step="0.1" value="${appState.settings.drowsinessDurationSec}" aria-label="Eye-closure warning duration in seconds" />
+              <span class="range-val-badge" id="settings-duration-val">${appState.settings.drowsinessDurationSec.toFixed(1)}s</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- EAR Threshold -->
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-title">Eye Aspect Ratio (EAR) Threshold</div>
+            <div class="setting-desc">Geometric ratio below which the eyelid is classified as closed. Higher values trigger faster; lower values require tighter closure. (Default: 0.22)</div>
+          </div>
+          <div class="setting-control">
+            <div class="range-with-val">
+              <input type="range" id="settings-ear-slider" min="0.16" max="0.30" step="0.01" value="${appState.settings.earThreshold}" aria-label="Eye Aspect Ratio threshold" />
+              <span class="range-val-badge" id="settings-ear-val">${appState.settings.earThreshold.toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Alarm & Audio Notification Settings -->
+    <div class="settings-section-card">
+      <div class="card-header">
+        <div class="card-title">
+          ${ICONS.bell} Drowsiness Alarm &amp; Audio Notifications
         </div>
       </div>
 
       <div class="settings-grid-rows">
         <div class="setting-row">
           <div class="setting-info">
-            <div class="setting-title">Audio Alarm Master Switch</div>
-            <div class="setting-desc">Audible buzzer / siren activates immediately when prolonged eye closure is detected.</div>
+            <div class="setting-title">Audible Alarm Master Switch</div>
+            <div class="setting-desc">Audible buzzer, siren, or chime sounds immediately upon prolonged eye closure or microsleep events.</div>
           </div>
           <div class="setting-control">
-            <label class="switch-control">
+            <label class="switch-control" aria-label="Toggle Audible Alarm">
               <input type="checkbox" id="settings-alarm-enabled" ${appState.settings.alarmEnabled ? 'checked' : ''} />
               <span class="switch-slider"></span>
             </label>
@@ -81,15 +148,15 @@ export async function renderSettingsPage() {
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-title">Warning Tone Profile</div>
-            <div class="setting-desc">Select the auditory alert profile synthesized through vehicle speakers.</div>
+            <div class="setting-desc">Select the synthesized acoustic alert profile sounded through cabin audio speakers.</div>
           </div>
           <div class="setting-control" style="min-width: 240px; display: flex; gap: 0.5rem;">
-            <select class="form-select" id="settings-tone-select">
+            <select class="form-select" id="settings-tone-select" aria-label="Select Alarm Tone">
               <option value="buzzer" ${appState.settings.alarmSound === 'buzzer' ? 'selected' : ''}>Automotive Pulsing Buzzer</option>
               <option value="chime" ${appState.settings.alarmSound === 'chime' ? 'selected' : ''}>Cabin Chime (Mercedes Style)</option>
               <option value="siren" ${appState.settings.alarmSound === 'siren' ? 'selected' : ''}>High Urgency Sweep Siren</option>
             </select>
-            <button class="btn btn-secondary btn-icon" id="settings-test-audio-btn" title="Preview Audio Tone">
+            <button class="btn btn-secondary btn-icon" id="settings-test-audio-btn" title="Preview selected audio tone" aria-label="Preview Alarm Tone">
               ${ICONS.volume2}
             </button>
           </div>
@@ -97,12 +164,12 @@ export async function renderSettingsPage() {
 
         <div class="setting-row">
           <div class="setting-info">
-            <div class="setting-title">Audio Volume Output</div>
-            <div class="setting-desc">Master alert gain level synthesized via Web Audio API.</div>
+            <div class="setting-title">Alarm Output Volume</div>
+            <div class="setting-desc">Synthesized volume gain level generated via the Web Audio API synthesizer.</div>
           </div>
           <div class="setting-control">
             <div class="range-with-val">
-              <input type="range" id="settings-volume-slider" min="0" max="100" step="5" value="${appState.settings.volume}" />
+              <input type="range" id="settings-volume-slider" min="0" max="100" step="5" value="${appState.settings.volume}" aria-label="Alarm Volume percentage" />
               <span class="range-val-badge" id="settings-volume-val">${appState.settings.volume}%</span>
             </div>
           </div>
@@ -111,50 +178,13 @@ export async function renderSettingsPage() {
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-title">Voice Alert Prompt (Speech Synthesis)</div>
-            <div class="setting-desc">Vocal speech alert announces: "Warning: Driver drowsiness detected! Pull over safely."</div>
+            <div class="setting-desc">Vocal safety announcement: "Warning: Driver drowsiness detected! Pull over safely."</div>
           </div>
           <div class="setting-control">
-            <label class="switch-control">
+            <label class="switch-control" aria-label="Toggle Voice Alert Prompts">
               <input type="checkbox" id="settings-speech-enabled" ${appState.settings.speechAlert ? 'checked' : ''} />
               <span class="switch-slider"></span>
             </label>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 3. Eye Aspect Ratio & Prolonged Closure Sensitivity -->
-    <div class="settings-section-card">
-      <div class="card-header">
-        <div class="card-title">
-          ${ICONS.gauge} Eye Closure & EAR Sensitivity
-        </div>
-      </div>
-
-      <div class="settings-grid-rows">
-        <div class="setting-row">
-          <div class="setting-info">
-            <div class="setting-title">Prolonged Closure Trigger Duration</div>
-            <div class="setting-desc">Consecutive seconds eyes must remain closed before the system triggers the critical drowsiness alarm. (Default: 2.0s)</div>
-          </div>
-          <div class="setting-control">
-            <div class="range-with-val">
-              <input type="range" id="settings-duration-slider" min="1.0" max="4.0" step="0.1" value="${appState.settings.drowsinessDurationSec}" />
-              <span class="range-val-badge" id="settings-duration-val">${appState.settings.drowsinessDurationSec.toFixed(1)}s</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="setting-row">
-          <div class="setting-info">
-            <div class="setting-title">Eye Aspect Ratio (EAR) Threshold</div>
-            <div class="setting-desc">Values below this limit classify the eyelid as closed. Increase for narrow eye contours, decrease for wide eyelids. (Default: 0.22)</div>
-          </div>
-          <div class="setting-control">
-            <div class="range-with-val">
-              <input type="range" id="settings-ear-slider" min="0.16" max="0.30" step="0.01" value="${appState.settings.earThreshold}" />
-              <span class="range-val-badge" id="settings-ear-val">${appState.settings.earThreshold.toFixed(2)}</span>
-            </div>
           </div>
         </div>
       </div>
@@ -172,10 +202,10 @@ export async function renderSettingsPage() {
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-title">Enable Yawning Detection</div>
-            <div class="setting-desc">Track mouth opening ratio (MAR) to detect fatigue yawning while filtering out ordinary speech.</div>
+            <div class="setting-desc">Track mouth opening aspect ratio (MAR) to detect early fatigue yawning while filtering standard conversation.</div>
           </div>
           <div class="setting-control">
-            <label class="switch-control">
+            <label class="switch-control" aria-label="Toggle Yawning Detection">
               <input type="checkbox" id="settings-yawn-enabled" ${appState.settings.yawnDetectionEnabled ? 'checked' : ''} />
               <span class="switch-slider"></span>
             </label>
@@ -185,11 +215,11 @@ export async function renderSettingsPage() {
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-title">Mouth Aspect Ratio (MAR) Threshold</div>
-            <div class="setting-desc">Opening ratio required to trigger yawn classification. Higher values require wider opening. (Default: 0.60)</div>
+            <div class="setting-desc">Vertical lip separation ratio required to classify yawning. (Default: 0.60)</div>
           </div>
           <div class="setting-control">
             <div class="range-with-val">
-              <input type="range" id="settings-mar-slider" min="0.45" max="0.85" step="0.05" value="${appState.settings.marThreshold}" />
+              <input type="range" id="settings-mar-slider" min="0.45" max="0.85" step="0.05" value="${appState.settings.marThreshold}" aria-label="Mouth Aspect Ratio threshold" />
               <span class="range-val-badge" id="settings-mar-val">${appState.settings.marThreshold.toFixed(2)}</span>
             </div>
           </div>
@@ -197,12 +227,12 @@ export async function renderSettingsPage() {
 
         <div class="setting-row">
           <div class="setting-info">
-            <div class="setting-title">Yawn Sustained Duration Threshold</div>
-            <div class="setting-desc">Duration mouth must remain continuously open to avoid classifying short vocal words as yawning. (Default: 1.8s)</div>
+            <div class="setting-title">Sustained Yawn Duration</div>
+            <div class="setting-desc">Minimum seconds mouth must remain open continuously to distinguish from brief spoken words. (Default: 1.8s)</div>
           </div>
           <div class="setting-control">
             <div class="range-with-val">
-              <input type="range" id="settings-yawn-dur-slider" min="1.0" max="3.5" step="0.1" value="${appState.settings.yawnDurationSec}" />
+              <input type="range" id="settings-yawn-dur-slider" min="1.0" max="3.5" step="0.1" value="${appState.settings.yawnDurationSec}" aria-label="Sustained yawn duration in seconds" />
               <span class="range-val-badge" id="settings-yawn-dur-val">${appState.settings.yawnDurationSec.toFixed(1)}s</span>
             </div>
           </div>
@@ -214,18 +244,18 @@ export async function renderSettingsPage() {
     <div class="settings-section-card">
       <div class="card-header">
         <div class="card-title">
-          ${ICONS.cpu} Head Position & Orientation
+          ${ICONS.cpu} Head Position &amp; Orientation Monitoring
         </div>
       </div>
 
       <div class="settings-grid-rows">
         <div class="setting-row">
           <div class="setting-info">
-            <div class="setting-title">Enable Head Pose Monitoring</div>
-            <div class="setting-desc">Detect downward head drooping or microsleep nods using 3D facial landmark geometry.</div>
+            <div class="setting-title">Enable Head Position Detection</div>
+            <div class="setting-desc">Monitors downward head drooping or microsleep nod-offs using 3D facial landmark trigonometry.</div>
           </div>
           <div class="setting-control">
-            <label class="switch-control">
+            <label class="switch-control" aria-label="Toggle Head Position Detection">
               <input type="checkbox" id="settings-headpose-enabled" ${appState.settings.headPoseEnabled ? 'checked' : ''} />
               <span class="switch-slider"></span>
             </label>
@@ -234,12 +264,12 @@ export async function renderSettingsPage() {
 
         <div class="setting-row">
           <div class="setting-info">
-            <div class="setting-title">Downward Head Drop Sensitivity</div>
-            <div class="setting-desc">Pitch ratio limit below which head is classified as downward tilting. (Default: 0.65)</div>
+            <div class="setting-title">Downward Head Tilt Sensitivity</div>
+            <div class="setting-desc">Nose-to-jaw vertical pitch ratio below which the head is classified as downward tilting. (Default: 0.65)</div>
           </div>
           <div class="setting-control">
             <div class="range-with-val">
-              <input type="range" id="settings-headdrop-slider" min="0.45" max="0.85" step="0.05" value="${appState.settings.headDropThreshold}" />
+              <input type="range" id="settings-headdrop-slider" min="0.45" max="0.85" step="0.05" value="${appState.settings.headDropThreshold}" aria-label="Head drop pitch threshold" />
               <span class="range-val-badge" id="settings-headdrop-val">${appState.settings.headDropThreshold.toFixed(2)}</span>
             </div>
           </div>
@@ -247,12 +277,12 @@ export async function renderSettingsPage() {
 
         <div class="setting-row">
           <div class="setting-info">
-            <div class="setting-title">Sustained Head Drop Duration</div>
-            <div class="setting-desc">Consecutive seconds head must remain tilted downward before issuing a fatigue caution. (Default: 1.2s)</div>
+            <div class="setting-title">Sustained Head Nod Duration</div>
+            <div class="setting-desc">Consecutive seconds head must remain tilted downward before issuing a posture caution. (Default: 1.2s)</div>
           </div>
           <div class="setting-control">
             <div class="range-with-val">
-              <input type="range" id="settings-head-dur-slider" min="0.8" max="2.5" step="0.1" value="${appState.settings.headDropDurationSec}" />
+              <input type="range" id="settings-head-dur-slider" min="0.8" max="2.5" step="0.1" value="${appState.settings.headDropDurationSec}" aria-label="Sustained head drop duration in seconds" />
               <span class="range-val-badge" id="settings-head-dur-val">${appState.settings.headDropDurationSec.toFixed(1)}s</span>
             </div>
           </div>
@@ -260,11 +290,11 @@ export async function renderSettingsPage() {
       </div>
     </div>
 
-    <!-- 6. Appearance & Automotive Theme -->
+    <!-- 6. Appearance & Automotive Themes -->
     <div class="settings-section-card">
       <div class="card-header">
         <div class="card-title">
-          ${ICONS.sun} Cockpit Theme & Visual Display
+          ${ICONS.sun} Cockpit Theme &amp; Visual Display
         </div>
       </div>
 
@@ -272,13 +302,13 @@ export async function renderSettingsPage() {
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-title">Cockpit Theme Mode</div>
-            <div class="setting-desc">Switch between night-optimized Dark Navy and daylight Clean Slate themes.</div>
+            <div class="setting-desc">Switch between night-optimized Dark Navy cockpit theme and daylight Clean Slate theme.</div>
           </div>
-          <div class="setting-control" style="gap: 0.5rem;">
-            <button class="btn btn-sm ${appState.theme === 'dark' ? 'btn-primary' : 'btn-secondary'}" id="settings-dark-theme-btn">
+          <div class="setting-control" style="gap: 0.5rem; display: flex;">
+            <button class="btn btn-sm ${appState.theme === 'dark' ? 'btn-primary' : 'btn-secondary'}" id="settings-dark-theme-btn" aria-label="Switch to Dark Navy Theme">
               ${ICONS.moon} Dark Navy
             </button>
-            <button class="btn btn-sm ${appState.theme === 'light' ? 'btn-primary' : 'btn-secondary'}" id="settings-light-theme-btn">
+            <button class="btn btn-sm ${appState.theme === 'light' ? 'btn-primary' : 'btn-secondary'}" id="settings-light-theme-btn" aria-label="Switch to Light Slate Theme">
               ${ICONS.sun} Light Slate
             </button>
           </div>
@@ -286,11 +316,42 @@ export async function renderSettingsPage() {
       </div>
     </div>
 
-    <!-- 7. Data Privacy & Diagnostics -->
+    <!-- 7. Session History Management -->
     <div class="settings-section-card">
       <div class="card-header">
         <div class="card-title">
-          ${ICONS.shieldCheck} Data & Local Privacy
+          ${ICONS.reports} Session History Management
+        </div>
+      </div>
+
+      <div class="settings-grid-rows">
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-title">Stored Driving Telematics</div>
+            <div class="setting-desc">
+              Currently holding <strong>${totalSessions} sessions</strong> totaling <strong>${formatDuration(totalDuration)}</strong> of monitored vehicle telemetry.
+            </div>
+          </div>
+          <div class="setting-control" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button class="btn btn-secondary btn-sm" id="settings-export-csv-btn" ${totalSessions === 0 ? 'disabled' : ''} aria-label="Download All History CSV">
+              ${ICONS.download} Export CSV
+            </button>
+            <button class="btn btn-secondary btn-sm" id="settings-export-pdf-btn" ${totalSessions === 0 ? 'disabled' : ''} aria-label="Download All History PDF">
+              ${ICONS.download} Export PDF
+            </button>
+            <button class="btn btn-outline-danger btn-sm" id="settings-clear-history-btn" ${totalSessions === 0 ? 'disabled' : ''} aria-label="Clear All Session History">
+              ${ICONS.trash} Clear History
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 8. Data Privacy & Diagnostics -->
+    <div class="settings-section-card">
+      <div class="card-header">
+        <div class="card-title">
+          ${ICONS.shieldCheck} Data Privacy &amp; Local Edge Security
         </div>
       </div>
 
@@ -299,22 +360,51 @@ export async function renderSettingsPage() {
           <div class="privacy-badge-icon">${ICONS.shieldCheck}</div>
           <div>
             <h4 style="font-size: 0.95rem; font-weight: 700; color: var(--status-safe); margin-bottom: 0.25rem;">
-              Strict Local Computer Vision Processing Guarantee
+              100% On-Device Computer Vision Guarantee
             </h4>
-            <p style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5;">
-              Camera frames are rendered to an in-memory HTML5 Canvas and processed solely within your local browser JavaScript engine. 
-              No image frames, video streams, or biometric data are transmitted over the network or saved to remote cloud servers.
+            <p style="font-size: 0.825rem; color: var(--text-secondary); line-height: 1.5; margin-bottom: 0.5rem;">
+              Camera frames are rendered in-memory to an HTML5 Canvas and processed solely within your local browser JavaScript engine. 
+              <strong>No video streams, photographs, or biometric facial images are ever stored on disk or transmitted to remote servers.</strong>
+            </p>
+            <p style="font-size: 0.775rem; color: var(--text-muted); line-height: 1.4;">
+              <strong>What VigilDrive AI Records:</strong> Only anonymous numerical telematics (timestamps, session duration, computed EAR/MAR ratios, and alert counts) to provide historical safety reporting.
             </p>
           </div>
         </div>
 
         <div class="setting-row">
           <div class="setting-info">
-            <div class="setting-title">Reset System to Defaults</div>
-            <div class="setting-desc">Restores factory default sensitivity parameters (2.0s duration, 0.22 EAR, 0.60 MAR) and restores baseline sample sessions.</div>
+            <div class="setting-title">Local Storage Data Retention Mode</div>
+            <div class="setting-desc">Choose between persistent browser storage across visits or ephemeral session-only memory that is cleared when the tab closes.</div>
+          </div>
+          <div class="setting-control" style="min-width: 220px;">
+            <select class="form-select" id="settings-retention-select" aria-label="Select Data Retention Mode">
+              <option value="persistent" ${appState.settings.retentionPolicy !== 'session_only' ? 'selected' : ''}>Persistent Local Storage</option>
+              <option value="session_only" ${appState.settings.retentionPolicy === 'session_only' ? 'selected' : ''}>Ephemeral (Session Only / Incognito)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-title">Anonymous Telematics Logs</div>
+            <div class="setting-desc">Excludes driver device metadata and hardware IDs from generated CSV and PDF export reports.</div>
           </div>
           <div class="setting-control">
-            <button class="btn btn-outline-danger btn-sm" id="settings-reset-all-btn">
+            <label class="switch-control" aria-label="Toggle Anonymous Telematics Reports">
+              <input type="checkbox" id="settings-anonymous-reports" ${appState.settings.anonymousReports !== false ? 'checked' : ''} />
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-title">Restore Factory Default Settings</div>
+            <div class="setting-desc">Restores all biometric parameters to baseline defaults (2.0s duration, 0.22 EAR, 0.60 MAR).</div>
+          </div>
+          <div class="setting-control">
+            <button class="btn btn-outline-danger btn-sm" id="settings-reset-all-btn" aria-label="Restore Factory Default Settings">
               ${ICONS.refresh} Factory Reset
             </button>
           </div>
@@ -342,12 +432,100 @@ function bindSettingsEvents(container) {
     });
   }
 
+  // Sensitivity presets
+  const presetHigh = container.querySelector("#preset-high-btn");
+  const presetBalanced = container.querySelector("#preset-balanced-btn");
+  const presetLow = container.querySelector("#preset-low-btn");
+
+  const durSlider = container.querySelector("#settings-duration-slider");
+  const durVal = container.querySelector("#settings-duration-val");
+  const earSlider = container.querySelector("#settings-ear-slider");
+  const earVal = container.querySelector("#settings-ear-val");
+
+  if (presetHigh) {
+    presetHigh.addEventListener("click", () => {
+      appState.saveSettings({
+        sensitivityPreset: "high",
+        earThreshold: 0.24,
+        drowsinessDurationSec: 1.5
+      });
+      if (durSlider && durVal) {
+        durSlider.value = "1.5";
+        durVal.textContent = "1.5s";
+      }
+      if (earSlider && earVal) {
+        earSlider.value = "0.24";
+        earVal.textContent = "0.24";
+      }
+      showToast("High Sensitivity Active", "Eyelid closure alerts trigger faster (1.5s, 0.24 EAR).", "info");
+      appState.setPage("settings");
+    });
+  }
+
+  if (presetBalanced) {
+    presetBalanced.addEventListener("click", () => {
+      appState.saveSettings({
+        sensitivityPreset: "balanced",
+        earThreshold: 0.22,
+        drowsinessDurationSec: 2.0
+      });
+      if (durSlider && durVal) {
+        durSlider.value = "2.0";
+        durVal.textContent = "2.0s";
+      }
+      if (earSlider && earVal) {
+        earSlider.value = "0.22";
+        earVal.textContent = "0.22";
+      }
+      showToast("Balanced Sensitivity Active", "Default standard sensitivity restored (2.0s, 0.22 EAR).", "safe");
+      appState.setPage("settings");
+    });
+  }
+
+  if (presetLow) {
+    presetLow.addEventListener("click", () => {
+      appState.saveSettings({
+        sensitivityPreset: "low",
+        earThreshold: 0.19,
+        drowsinessDurationSec: 2.5
+      });
+      if (durSlider && durVal) {
+        durSlider.value = "2.5";
+        durVal.textContent = "2.5s";
+      }
+      if (earSlider && earVal) {
+        earSlider.value = "0.19";
+        earVal.textContent = "0.19";
+      }
+      showToast("Low Sensitivity Active", "Reduced false alert tolerance (2.5s, 0.19 EAR).", "info");
+      appState.setPage("settings");
+    });
+  }
+
+  // Duration slider
+  if (durSlider && durVal) {
+    durSlider.addEventListener("input", (e) => {
+      const val = parseFloat(e.target.value);
+      durVal.textContent = `${val.toFixed(1)}s`;
+      appState.saveSettings({ drowsinessDurationSec: val, sensitivityPreset: "custom" });
+    });
+  }
+
+  // EAR threshold slider
+  if (earSlider && earVal) {
+    earSlider.addEventListener("input", (e) => {
+      const val = parseFloat(e.target.value);
+      earVal.textContent = val.toFixed(2);
+      appState.saveSettings({ earThreshold: val, sensitivityPreset: "custom" });
+    });
+  }
+
   // Alarm enabled switch
   const alarmSwitch = container.querySelector("#settings-alarm-enabled");
   if (alarmSwitch) {
     alarmSwitch.addEventListener("change", (e) => {
       appState.saveSettings({ alarmEnabled: e.target.checked });
-      showToast("Alarm Settings", e.target.checked ? "Audio buzzer enabled" : "Audio buzzer disabled", "info");
+      showToast("Alarm Configuration", e.target.checked ? "Audible buzzer enabled." : "Audible buzzer muted.", "info");
     });
   }
 
@@ -357,7 +535,7 @@ function bindSettingsEvents(container) {
     toneSelect.addEventListener("change", (e) => {
       appState.saveSettings({ alarmSound: e.target.value });
       soundManager.testAlarm();
-      showToast("Tone Changed", `Selected ${e.target.value} alert.`, "info");
+      showToast("Tone Profile Changed", `Selected ${e.target.value} acoustic alert.`, "info");
     });
   }
 
@@ -385,29 +563,7 @@ function bindSettingsEvents(container) {
   if (speechSwitch) {
     speechSwitch.addEventListener("change", (e) => {
       appState.saveSettings({ speechAlert: e.target.checked });
-      showToast("Voice Alert", e.target.checked ? "Voice prompts enabled" : "Voice prompts disabled", "info");
-    });
-  }
-
-  // Duration threshold slider
-  const durSlider = container.querySelector("#settings-duration-slider");
-  const durVal = container.querySelector("#settings-duration-val");
-  if (durSlider && durVal) {
-    durSlider.addEventListener("input", (e) => {
-      const val = parseFloat(e.target.value);
-      durVal.textContent = `${val.toFixed(1)}s`;
-      appState.saveSettings({ drowsinessDurationSec: val });
-    });
-  }
-
-  // EAR threshold slider
-  const earSlider = container.querySelector("#settings-ear-slider");
-  const earVal = container.querySelector("#settings-ear-val");
-  if (earSlider && earVal) {
-    earSlider.addEventListener("input", (e) => {
-      const val = parseFloat(e.target.value);
-      earVal.textContent = val.toFixed(2);
-      appState.saveSettings({ earThreshold: val });
+      showToast("Voice Alerts", e.target.checked ? "Vocal speech prompts enabled." : "Vocal speech prompts disabled.", "info");
     });
   }
 
@@ -416,7 +572,7 @@ function bindSettingsEvents(container) {
   if (yawnSwitch) {
     yawnSwitch.addEventListener("change", (e) => {
       appState.saveSettings({ yawnDetectionEnabled: e.target.checked });
-      showToast("Yawning Detection", e.target.checked ? "Yawn detection enabled" : "Yawn detection disabled", "info");
+      showToast("Yawning Detection", e.target.checked ? "Yawn tracking enabled." : "Yawn tracking disabled.", "info");
     });
   }
 
@@ -447,7 +603,7 @@ function bindSettingsEvents(container) {
   if (headposeSwitch) {
     headposeSwitch.addEventListener("change", (e) => {
       appState.saveSettings({ headPoseEnabled: e.target.checked });
-      showToast("Head Pose Monitoring", e.target.checked ? "Head pose monitoring enabled" : "Head pose monitoring disabled", "info");
+      showToast("Head Pose Monitoring", e.target.checked ? "Head drop tracking enabled." : "Head drop tracking disabled.", "info");
     });
   }
 
@@ -487,13 +643,71 @@ function bindSettingsEvents(container) {
     });
   }
 
+  // Session history actions
+  const exportCsvBtn = container.querySelector("#settings-export-csv-btn");
+  if (exportCsvBtn) {
+    exportCsvBtn.addEventListener("click", () => {
+      exportAllSessionsToCSV(appState.sessions || []);
+    });
+  }
+
+  const exportPdfBtn = container.querySelector("#settings-export-pdf-btn");
+  if (exportPdfBtn) {
+    exportPdfBtn.addEventListener("click", () => {
+      exportAllSessionsToPDF(appState.sessions || []);
+    });
+  }
+
+  const clearHistBtn = container.querySelector("#settings-clear-history-btn");
+  if (clearHistBtn) {
+    clearHistBtn.addEventListener("click", () => {
+      showConfirmModal({
+        title: "Delete All Session Telematics?",
+        message: "This will permanently purge all recorded monitoring sessions from your browser storage.",
+        confirmText: "Delete History",
+        isDanger: true,
+        onConfirm: () => {
+          appState.clearSessions();
+          showToast("History Purged", "All saved session telemetry deleted.", "safe");
+          appState.setPage("settings");
+        }
+      });
+    });
+  }
+
+  // Data retention mode
+  const retentionSelect = container.querySelector("#settings-retention-select");
+  if (retentionSelect) {
+    retentionSelect.addEventListener("change", (e) => {
+      appState.saveSettings({ retentionPolicy: e.target.value });
+      if (e.target.value === "session_only") {
+        showToast("Ephemeral Mode", "Session records will be held in-memory and discarded upon window close.", "info");
+      } else {
+        showToast("Persistent Storage Active", "Session records will persist across page reloads.", "safe");
+      }
+    });
+  }
+
+  // Anonymous session reports toggle
+  const anonSwitch = container.querySelector("#settings-anonymous-reports");
+  if (anonSwitch) {
+    anonSwitch.addEventListener("change", (e) => {
+      appState.saveSettings({ anonymousReports: e.target.checked });
+      showToast(
+        "Privacy Preference Saved",
+        e.target.checked ? "Session reports configured as anonymous." : "Device telematics identifiers enabled.",
+        "safe"
+      );
+    });
+  }
+
   // Factory reset
   const resetBtn = container.querySelector("#settings-reset-all-btn");
   if (resetBtn) {
     resetBtn.addEventListener("click", () => {
       showConfirmModal({
         title: "Restore Factory Default Settings?",
-        message: "This will restore default sensitivity parameters (2.0s duration, 0.22 EAR, 0.60 MAR) and reset session logs.",
+        message: "This will restore default sensitivity parameters (2.0s duration, 0.22 EAR, 0.60 MAR) and reset custom preferences.",
         confirmText: "Restore Defaults",
         isDanger: true,
         onConfirm: () => {

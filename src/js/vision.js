@@ -99,6 +99,7 @@ class VisionEngine {
     this.faceLandmarker = null;
     this.isLandmarkerReady = false;
     this.isInitializingLandmarker = false;
+    this.isStartingCamera = false;
     this.faceMesh = null; // CDN fallback
     this.isFaceMeshReady = false;
 
@@ -231,6 +232,11 @@ class VisionEngine {
    * Start optical camera stream and detection processing
    */
   async startCamera(videoEl, canvasEl) {
+    if (this.isStartingCamera) {
+      return { success: false, error: "Camera initialization already in progress." };
+    }
+    this.isStartingCamera = true;
+
     this.videoElement = videoEl;
     this.canvasElement = canvasEl;
     this.canvasCtx = canvasEl ? canvasEl.getContext("2d", { willReadFrequently: true }) : null;
@@ -255,12 +261,14 @@ class VisionEngine {
       appState.cameraConnected = true;
       appState.faceDetected = true;
       appState.driverStatus = "ATTENTIVE";
+      this.isStartingCamera = false;
       this.startLoop();
       return { success: true };
     }
 
     // Check mediaDevices support
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      this.isStartingCamera = false;
       const errDetail = "Webcam API not supported in this browser environment.";
       appState.cameraConnected = false;
       appState.driverStatus = "CAMERA ERROR";
@@ -323,8 +331,10 @@ class VisionEngine {
       }
 
       appState.cameraError = errorMsg;
-      showToast("Camera Access Denied", errorMsg, "danger");
+      showToast("Camera Access Notice", errorMsg, "danger");
       return { success: false, error: errorMsg };
+    } finally {
+      this.isStartingCamera = false;
     }
   }
 

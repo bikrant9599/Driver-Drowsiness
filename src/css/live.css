@@ -401,3 +401,49 @@
   margin-bottom: 1.25rem;
 }
 
+/* Camera Initializing State Overlay */
+.camera-initializing-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at center, rgba(13, 22, 41, 0.96), rgba(2, 6, 23, 0.98));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem;
+  z-index: 16;
+}
+
+/* In-Cabin Lighting & Face Visibility Notice */
+.hud-lighting-notice {
+  position: absolute;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(180, 83, 9, 0.92);
+  backdrop-filter: blur(8px);
+  color: #ffffff;
+  padding: 0.45rem 1.15rem;
+  border-radius: var(--radius-md);
+  font-size: 0.775rem;
+  font-weight: 600;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  max-width: 90%;
+  text-align: center;
+  animation: noticeFloat 2s ease-in-out infinite alternate;
+}
+
+@keyframes noticeFloat {
+  0% { transform: translate(-50%, 0); }
+  100% { transform: translate(-50%, 2px); }
+}
+
