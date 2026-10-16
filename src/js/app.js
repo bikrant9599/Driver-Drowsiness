@@ -1,60 +1,95 @@
 /* ==========================================================================
-   DRIVER DROWSINESS DETECTION - SINGLE SCREEN APPLICATION
-   Clean, simple, intuitive interface with zero unnecessary complexity
+   DRIVER DROWSINESS DETECTION - APPLICATION CONTROLLER
+   Clean, modern, professional computer-vision dashboard
    ========================================================================== */
 
-import { ICONS, formatDurationText } from "./utils.js";
+import { ICONS, formatDurationText, formatTimerDisplay, formatDateTime } from "./utils.js";
 import { appState } from "./state.js";
 import { visionEngine } from "./vision.js";
+import { soundManager } from "./audio.js";
 
 class SingleScreenApp {
   constructor() {
     this.root = document.getElementById("app-root");
     this.timerInterval = null;
+    this.showDeleteModal = false;
   }
 
   init() {
-    // Apply saved theme (default dark)
+    // Apply saved theme (default dark navy)
     const savedTheme = localStorage.getItem("drowsiness_theme") || "dark";
     document.documentElement.setAttribute("data-theme", savedTheme);
 
     // Initial render
     this.render();
 
-    // Subscribe to state changes
+    // Subscribe to application state changes
     appState.subscribe(() => {
-      this.updateStatusAndUI();
+      this.onStateChange();
     });
 
-    // Duration timer ticker
+    // Duration timer ticker (increments sessionDurationSec during monitoring)
     this.timerInterval = setInterval(() => {
       if (appState.isMonitoring) {
         appState.sessionDurationSec++;
+        // Fast-path clock update without re-rendering entire DOM
+        const clockEl = document.getElementById("live-clock-val");
+        if (clockEl) {
+          clockEl.textContent = formatTimerDisplay(appState.sessionDurationSec);
+        }
       }
     }, 1000);
   }
 
+  onStateChange() {
+    // Fast path: if monitoring is active and view is already 'monitoring', only update live detection overlay & banner
+    if (appState.isMonitoring && appState.currentView === "monitoring") {
+      this.updateMonitoringUI();
+      return;
+    }
+
+    // View changed or session stopped: full re-render
+    this.render();
+  }
+
   render() {
     const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+    const currentView = appState.currentView;
 
     this.root.innerHTML = `
       <div class="app-container">
-        <!-- Top Utility Bar (Theme toggle only) -->
+        <!-- Top Utility Header -->
         <header class="app-top-bar">
-          <button class="theme-toggle-btn" id="theme-toggle-btn" aria-label="Toggle Dark and Light Mode" title="Toggle Theme">
-            ${isDark ? ICONS.sun : ICONS.moon}
-          </button>
+          <div class="top-bar-branding">
+            <span class="system-pill">AI Vision Assist</span>
+          </div>
+          <div class="top-bar-actions">
+            ${
+              currentView !== "history" && !appState.isMonitoring
+                ? `<button class="icon-btn" id="header-history-btn" aria-label="View Session History" title="View History">
+                     ${ICONS.history}
+                     <span>History</span>
+                   </button>`
+                : ""
+            }
+            <button class="icon-btn" id="theme-toggle-btn" aria-label="Toggle Dark and Light Mode" title="Toggle Theme">
+              ${isDark ? ICONS.sun : ICONS.moon}
+            </button>
+          </div>
         </header>
 
-        <!-- Main Screen Card -->
+        <!-- Main Dashboard Card -->
         <main class="main-card" id="main-card">
           ${this.getMainCardContent()}
         </main>
 
-        <!-- Safety Notice -->
+        <!-- Safety & Privacy Notice -->
         <footer class="app-safety-notice">
-          Safety Notice: This application is a prototype assistive tool and must not replace proper rest or safe driving decisions. Always stop and rest if you feel tired.
+          Safety Notice: Video is processed locally in real time and is never uploaded or recorded. This assistive system is a prototype and does not replace safe driving or adequate rest.
         </footer>
+
+        <!-- Confirmation Modal for Delete History -->
+        ${this.renderDeleteModal()}
       </div>
     `;
 
@@ -62,71 +97,271 @@ class SingleScreenApp {
   }
 
   getMainCardContent() {
-    // 1. Session Summary State (Shown right after stopping)
-    if (!appState.isMonitoring && appState.lastSession) {
-      return `
-        <h1 class="app-title">Driver Drowsiness Detection</h1>
-        <p class="app-instruction">Session Summary</p>
-
-        <div class="summary-box">
-          <div class="summary-item">
-            <span class="summary-label">Monitoring Duration</span>
-            <span class="summary-value">${formatDurationText(appState.lastSession.durationSeconds)}</span>
-          </div>
-          <div class="summary-item">
-            <span class="summary-label">Possible Drowsiness Events Detected</span>
-            <span class="summary-value ${appState.lastSession.drowsinessEventsCount > 0 ? 'text-danger' : 'text-safe'}">
-              ${appState.lastSession.drowsinessEventsCount}
-            </span>
-          </div>
-        </div>
-
-        <button class="btn btn-primary btn-large" id="start-again-btn">
-          ${ICONS.play} START AGAIN
-        </button>
-      `;
+    switch (appState.currentView) {
+      case "monitoring":
+        return this.renderMonitoringView();
+      case "summary":
+        return this.renderSummaryView();
+      case "history":
+        return this.renderHistoryView();
+      case "main":
+      default:
+        return this.renderMainView();
     }
+  }
 
-    // 2. Monitoring Active State
-    if (appState.isMonitoring) {
-      const statusClass = this.getStatusClass();
+  /* -------------------------------------------------------------------------
+     1. Main Screen View (Ready State)
+     ------------------------------------------------------------------------- */
+  renderMainView() {
+    const isMuted = soundManager.isMuted;
+    const vol = soundManager.volume;
 
-      return `
-        <h1 class="app-title">Driver Drowsiness Detection</h1>
-        <p class="app-instruction">Monitor your eyes to detect signs of drowsiness.</p>
-
-        <!-- One Large Status Message -->
-        <div class="status-banner ${statusClass}" id="main-status-banner">
-          <span class="status-indicator-dot"></span>
-          <span class="status-text" id="status-text">${appState.statusText || 'Starting camera...'}</span>
-        </div>
-
-        <!-- Camera Preview -->
-        <div class="camera-preview-wrapper ${appState.activeWarning ? 'alert-flashing' : ''}" id="camera-preview-wrapper">
-          <video id="webcam-video" autoplay playsinline muted></video>
-          <canvas id="overlay-canvas"></canvas>
-          <div class="camera-unavailable-overlay" id="camera-unavailable-overlay" style="display: ${appState.status === 'CAMERA_UNAVAILABLE' ? 'flex' : 'none'};">
-            <p><strong>Camera Unavailable</strong></p>
-            <p class="error-detail">${appState.cameraError || 'Please allow camera permissions and ensure no other application is using your webcam.'}</p>
-          </div>
-        </div>
-
-        <!-- One STOP MONITORING Button -->
-        <button class="btn btn-danger btn-large" id="stop-monitoring-btn">
-          ${ICONS.stop} STOP MONITORING
-        </button>
-      `;
-    }
-
-    // 3. Ready / Initial State
     return `
       <h1 class="app-title">Driver Drowsiness Detection</h1>
-      <p class="app-instruction">Monitor your eyes to detect signs of drowsiness.</p>
+      <p class="app-instruction">Real-time computer-vision monitoring for driver alertness and eye closure.</p>
 
       <div class="start-wrapper">
         <button class="btn btn-primary btn-large" id="start-monitoring-btn">
           ${ICONS.play} START MONITORING
         </button>
+      </div>
+
+      <!-- Quick Audio & Device Controls Card -->
+      <div class="dashboard-controls-card">
+        <div class="control-group">
+          <span class="control-label">Alert Sound</span>
+          <button class="control-btn" id="mute-toggle-btn" title="${isMuted ? 'Unmute alert sound' : 'Mute alert sound'}">
+            ${isMuted ? ICONS.volumeMute : ICONS.volumeUp}
+            <span>${isMuted ? 'Muted' : 'Sound Active'}</span>
+          </button>
+          <button class="control-btn" id="test-sound-btn" title="Test automotive warning chime">
+            ${ICONS.bell}
+            <span>Test Alert Sound</span>
+          </button>
+        </div>
+
+        <div class="control-group">
+          <span class="control-label">Volume</span>
+          <div class="volume-slider-wrap">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value="${vol}"
+              class="volume-slider"
+              id="volume-slider"
+              aria-label="Alert Volume Slider"
+            />
+            <span class="volume-val" id="volume-val-display">${vol}%</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /* -------------------------------------------------------------------------
+     2. Live Monitoring View
+     ------------------------------------------------------------------------- */
+  renderMonitoringView() {
+    const statusClass = this.getStatusClass();
+    const isMuted = soundManager.isMuted;
+    const clockStr = formatTimerDisplay(appState.sessionDurationSec);
+
+    return `
+      <h1 class="app-title">Driver Drowsiness Detection</h1>
+      <p class="app-instruction">Monitor your eyes to detect signs of drowsiness.</p>
+
+      <!-- One Clear Status Banner -->
+      <div class="status-banner ${statusClass}" id="main-status-banner">
+        <span class="status-indicator-dot"></span>
+        <span class="status-text" id="status-text">${appState.statusText || 'Starting camera...'}</span>
+      </div>
+
+      <!-- Camera Preview Wrapper -->
+      <div class="camera-preview-wrapper ${appState.activeWarning ? 'alert-flashing' : ''}" id="camera-preview-wrapper">
+        <video id="webcam-video" autoplay playsinline muted></video>
+        <canvas id="overlay-canvas"></canvas>
+        <div class="camera-unavailable-overlay" id="camera-unavailable-overlay" style="display: ${appState.status === 'CAMERA_UNAVAILABLE' ? 'flex' : 'none'};">
+          <p><strong>Camera Unavailable</strong></p>
+          <p class="error-detail">${appState.cameraError || 'Please allow camera permissions and ensure no other application is using your webcam.'}</p>
+        </div>
+      </div>
+
+      <!-- Monitoring Telemetrics & Sound Bar -->
+      <div class="monitoring-bar">
+        <div class="session-live-clock">
+          <span>Duration:</span>
+          <span class="clock-val" id="live-clock-val">${clockStr}</span>
+        </div>
+
+        <div class="control-group">
+          <button class="control-btn" id="live-mute-toggle-btn" title="${isMuted ? 'Unmute alert sound' : 'Mute alert sound'}">
+            ${isMuted ? ICONS.volumeMute : ICONS.volumeUp}
+            <span>${isMuted ? 'Muted' : 'Sound Active'}</span>
+          </button>
+          <button class="control-btn" id="live-test-sound-btn" title="Test warning chime">
+            ${ICONS.bell}
+            <span>Test Sound</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- One STOP MONITORING Button -->
+      <button class="btn btn-danger btn-large" id="stop-monitoring-btn">
+        ${ICONS.stop} STOP MONITORING
+      </button>
+    `;
+  }
+
+  /* -------------------------------------------------------------------------
+     3. Session Summary View (Centered, Symmetrical, Balanced)
+     ------------------------------------------------------------------------- */
+  renderSummaryView() {
+    const session = appState.lastSession || {
+      durationSeconds: 0,
+      drowsinessEventsCount: 0,
+      timestamp: Date.now(),
+      resultLabel: "No possible drowsiness events detected"
+    };
+
+    const isWarn = session.drowsinessEventsCount > 0;
+    const resultClass = isWarn ? "summary-result-warn" : "summary-result-safe";
+    const resultIcon = isWarn ? ICONS.alertTriangle : ICONS.check;
+
+    return `
+      <div class="summary-container">
+        <h1 class="app-title">Driver Drowsiness Detection</h1>
+        <p class="app-instruction">Session Summary</p>
+
+        <!-- Symmetrical Result Status Banner -->
+        <div class="summary-result-banner ${resultClass}">
+          ${resultIcon}
+          <span>${session.resultLabel}</span>
+        </div>
+
+        <!-- Symmetrical 3-Column Metrics Grid -->
+        <div class="summary-metrics-grid">
+          <div class="summary-card-cell">
+            <span class="cell-label">Session Duration</span>
+            <span class="cell-value">${formatDurationText(session.durationSeconds)}</span>
+            <span class="cell-subtext">Active monitoring</span>
+          </div>
+
+          <div class="summary-card-cell">
+            <span class="cell-label">Drowsiness Events</span>
+            <span class="cell-value" style="color: ${isWarn ? '#ef4444' : '#10b981'};">
+              ${session.drowsinessEventsCount}
+            </span>
+            <span class="cell-subtext">${isWarn ? 'Prolonged eye closure detected' : 'Alert status maintained'}</span>
+          </div>
+
+          <div class="summary-card-cell">
+            <span class="cell-label">Date & Time</span>
+            <span class="cell-value" style="font-size: 1.15rem;">${formatDateTime(session.timestamp)}</span>
+            <span class="cell-subtext">Actual completed session</span>
+          </div>
+        </div>
+
+        <!-- Summary Action Buttons -->
+        <div class="summary-actions-row">
+          <button class="btn btn-primary btn-large" id="start-new-session-btn">
+            ${ICONS.play} START NEW SESSION
+          </button>
+          <button class="btn btn-secondary btn-large" id="view-history-btn">
+            ${ICONS.history} VIEW HISTORY
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  /* -------------------------------------------------------------------------
+     4. Session History View
+     ------------------------------------------------------------------------- */
+  renderHistoryView() {
+    const history = appState.getHistory();
+
+    let listHtml = "";
+    if (history.length === 0) {
+      listHtml = `
+        <div class="history-empty-card">
+          ${ICONS.history}
+          <div class="empty-title">No Previous Sessions</div>
+          <p class="empty-desc">Completed monitoring sessions will automatically be saved and displayed here.</p>
+        </div>
+      `;
+    } else {
+      listHtml = `
+        <div class="history-list">
+          ${history
+            .map((item) => {
+              const isWarn = item.drowsinessEventsCount > 0;
+              const badgeClass = isWarn ? "badge-warn" : "badge-safe";
+              return `
+                <div class="history-item-card">
+                  <div class="history-item-top">
+                    <span class="history-date">${formatDateTime(item.timestamp)}</span>
+                    <span class="history-result-badge ${badgeClass}">${item.resultLabel}</span>
+                  </div>
+                  <div class="history-item-metrics">
+                    <span class="history-metric">Duration: <strong>${formatDurationText(item.durationSeconds)}</strong></span>
+                    <span class="history-metric">Possible drowsiness events: <strong style="color: ${isWarn ? '#ef4444' : '#10b981'};">${item.drowsinessEventsCount}</strong></span>
+                  </div>
+                </div>
+              `;
+            })
+            .join("")}
+        </div>
+      `;
+    }
+
+    return `
+      <div class="history-container">
+        <h1 class="app-title">Session History</h1>
+        <p class="app-instruction">Review your past completed drowsiness monitoring sessions.</p>
+
+        <div class="history-header-row">
+          <span class="history-count-badge">${history.length} ${history.length === 1 ? 'Session Recorded' : 'Sessions Recorded'}</span>
+        </div>
+
+        ${listHtml}
+
+        <div class="history-actions-row">
+          <button class="btn btn-secondary btn-large" id="history-back-btn">
+            ${ICONS.back} Back
+          </button>
+          ${
+            history.length > 0
+              ? `<button class="btn btn-secondary btn-large" id="clear-history-trigger-btn" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.35);">
+                   ${ICONS.trash} Delete History
+                 </button>`
+              : ""
+          }
+        </div>
+      </div>
+    `;
+  }
+
+  /* -------------------------------------------------------------------------
+     Confirmation Modal Dialog
+     ------------------------------------------------------------------------- */
+  renderDeleteModal() {
+    if (!this.showDeleteModal) return "";
+
+    return `
+      <div class="modal-backdrop" id="delete-modal-backdrop">
+        <div class="modal-dialog">
+          <div class="modal-icon">
+            ${ICONS.trash}
+          </div>
+          <div class="modal-title">Delete Session History?</div>
+          <p class="modal-desc">Are you sure you want to delete all saved session records? This action cannot be undone.</p>
+          <div class="modal-btn-row">
+            <button class="btn btn-secondary" id="modal-cancel-btn">Cancel</button>
+            <button class="btn btn-danger" id="modal-confirm-delete-btn">Confirm Delete</button>
+          </div>
+        </div>
       </div>
     `;
   }
@@ -152,22 +387,126 @@ class SingleScreenApp {
       };
     }
 
-    // Start Monitoring button
+    // Header History button
+    const headerHistBtn = document.getElementById("header-history-btn");
+    if (headerHistBtn) {
+      headerHistBtn.onclick = () => appState.setView("history");
+    }
+
+    // Start Monitoring button (Main view)
     const startBtn = document.getElementById("start-monitoring-btn");
     if (startBtn) {
       startBtn.onclick = () => this.startMonitoringFlow();
     }
 
-    // Start Again button (from summary)
-    const startAgainBtn = document.getElementById("start-again-btn");
-    if (startAgainBtn) {
-      startAgainBtn.onclick = () => this.startMonitoringFlow();
+    // Start New Session button (Summary view)
+    const startNewBtn = document.getElementById("start-new-session-btn");
+    if (startNewBtn) {
+      startNewBtn.onclick = () => this.startMonitoringFlow();
+    }
+
+    // View History button (Summary view)
+    const viewHistBtn = document.getElementById("view-history-btn");
+    if (viewHistBtn) {
+      viewHistBtn.onclick = () => appState.setView("history");
     }
 
     // Stop Monitoring button
     const stopBtn = document.getElementById("stop-monitoring-btn");
     if (stopBtn) {
       stopBtn.onclick = () => this.stopMonitoringFlow();
+    }
+
+    // History Back button
+    const histBackBtn = document.getElementById("history-back-btn");
+    if (histBackBtn) {
+      histBackBtn.onclick = () => {
+        const targetView = appState.previousView === "summary" ? "summary" : "main";
+        appState.setView(targetView);
+      };
+    }
+
+    // Clear History trigger
+    const clearHistBtn = document.getElementById("clear-history-trigger-btn");
+    if (clearHistBtn) {
+      clearHistBtn.onclick = () => {
+        this.showDeleteModal = true;
+        this.render();
+      };
+    }
+
+    // Modal Cancel
+    const modalCancelBtn = document.getElementById("modal-cancel-btn");
+    if (modalCancelBtn) {
+      modalCancelBtn.onclick = () => {
+        this.showDeleteModal = false;
+        this.render();
+      };
+    }
+
+    // Modal Backdrop click to cancel
+    const backdrop = document.getElementById("delete-modal-backdrop");
+    if (backdrop) {
+      backdrop.onclick = (e) => {
+        if (e.target === backdrop) {
+          this.showDeleteModal = false;
+          this.render();
+        }
+      };
+    }
+
+    // Modal Confirm Delete
+    const modalConfirmBtn = document.getElementById("modal-confirm-delete-btn");
+    if (modalConfirmBtn) {
+      modalConfirmBtn.onclick = () => {
+        appState.clearHistory();
+        this.showDeleteModal = false;
+        this.render();
+      };
+    }
+
+    // Audio Mute toggle (Main view)
+    const muteBtn = document.getElementById("mute-toggle-btn");
+    if (muteBtn) {
+      muteBtn.onclick = () => {
+        soundManager.toggleMute();
+        this.render();
+      };
+    }
+
+    // Audio Mute toggle (Live monitoring view)
+    const liveMuteBtn = document.getElementById("live-mute-toggle-btn");
+    if (liveMuteBtn) {
+      liveMuteBtn.onclick = () => {
+        const isMuted = soundManager.toggleMute();
+        liveMuteBtn.innerHTML = `
+          ${isMuted ? ICONS.volumeMute : ICONS.volumeUp}
+          <span>${isMuted ? 'Muted' : 'Sound Active'}</span>
+        `;
+      };
+    }
+
+    // Test Sound button (Main view)
+    const testSoundBtn = document.getElementById("test-sound-btn");
+    if (testSoundBtn) {
+      testSoundBtn.onclick = () => soundManager.testAlertSound();
+    }
+
+    // Test Sound button (Live monitoring view)
+    const liveTestSoundBtn = document.getElementById("live-test-sound-btn");
+    if (liveTestSoundBtn) {
+      liveTestSoundBtn.onclick = () => soundManager.testAlertSound();
+    }
+
+    // Volume Slider (Main view)
+    const volSlider = document.getElementById("volume-slider");
+    const volValDisplay = document.getElementById("volume-val-display");
+    if (volSlider && volValDisplay) {
+      volSlider.oninput = (e) => {
+        const val = parseInt(e.target.value, 10);
+        soundManager.setVolume(val);
+        volValDisplay.textContent = `${val}%`;
+      };
     }
   }
 
@@ -189,7 +528,7 @@ class SingleScreenApp {
     this.render();
   }
 
-  updateStatusAndUI() {
+  updateMonitoringUI() {
     if (!appState.isMonitoring) return;
 
     // Fast-path DOM update for real-time video tracking

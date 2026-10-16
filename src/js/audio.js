@@ -1,6 +1,6 @@
 /* ==========================================================================
    AUDIO SYNTHESIZER & AUDIBLE ALARM SYSTEM
-   Web Audio synthesizer for emergency drowsiness alerts
+   Automotive-grade dual acoustic chime warning for driver drowsiness
    ========================================================================== */
 
 class SoundManager {
@@ -8,8 +8,15 @@ class SoundManager {
     this.audioCtx = null;
     this.isPlaying = false;
     this.intervalId = null;
-    this.volume = 0.85;
-    this.alarmEnabled = true;
+
+    // Load persisted settings
+    const savedVol = localStorage.getItem("drowsiness_alarm_volume");
+    this.volume = savedVol !== null ? Math.max(0, Math.min(100, parseInt(savedVol, 10))) : 80;
+
+    const savedMute = localStorage.getItem("drowsiness_alarm_muted");
+    this.isMuted = savedMute === "true";
+
+    this.isAudioBlocked = false;
   }
 
   async initContext() {
@@ -25,68 +32,88 @@ class SoundManager {
         await this.audioCtx.resume();
       }
 
-      return Boolean(this.audioCtx && this.audioCtx.state === "running");
+      const isRunning = Boolean(this.audioCtx && this.audioCtx.state === "running");
+      this.isAudioBlocked = !isRunning;
+      return isRunning;
     } catch (err) {
       console.warn("AudioContext init error:", err);
+      this.isAudioBlocked = true;
       return false;
     }
   }
 
   /**
-   * Urgent audible buzzer pulse
+   * Synthesize a clean, rounded acoustic tone with exponential decay
    */
-  playBuzzer() {
-    this.initContext();
-    if (!this.audioCtx || !this.alarmEnabled || this.audioCtx.state !== "running") return;
+  synthesizeChimeNote(freq, startTime, duration, gainLevel) {
+    if (!this.audioCtx) return;
 
     try {
-      const now = this.audioCtx.currentTime;
-      const osc1 = this.audioCtx.createOscillator();
-      const osc2 = this.audioCtx.createOscillator();
+      const osc = this.audioCtx.createOscillator();
       const gain = this.audioCtx.createGain();
 
-      osc1.type = "sawtooth";
-      osc2.type = "square";
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, startTime);
 
-      osc1.frequency.setValueAtTime(880, now);
-      osc2.frequency.setValueAtTime(440, now);
+      // Smooth attack and natural exponential decay envelope (no clicks/pops)
+      gain.gain.setValueAtTime(0.0001, startTime);
+      gain.gain.exponentialRampToValueAtTime(gainLevel, startTime + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
 
-      const vol = this.volume * 0.55;
-      gain.gain.setValueAtTime(vol, now);
-      gain.gain.setValueAtTime(0.01, now + 0.18);
-
-      osc1.connect(gain);
-      osc2.connect(gain);
+      osc.connect(gain);
       gain.connect(this.audioCtx.destination);
 
-      osc1.start(now);
-      osc2.start(now);
-      osc1.stop(now + 0.2);
-      osc2.stop(now + 0.2);
+      osc.start(startTime);
+      osc.stop(startTime + duration + 0.02);
     } catch (e) {
-      console.warn("Buzzer error:", e);
+      console.warn("Chime note error:", e);
     }
   }
 
   /**
-   * Start continuous drowsiness alarm
+   * Dual-tone automotive alert pulse (G5 784Hz -> C6 1046Hz)
    */
-  startDrowsinessAlert() {
-    if (this.isPlaying) return;
-    this.isPlaying = true;
+  playWarningChime(overrideMute = false) {
+    if (!overrideMute && this.isMuted) return;
 
     this.initContext();
-    this.playBuzzer();
+    if (!this.audioCtx || this.audioCtx.state !== "running") return;
 
-    if (this.intervalId) clearInterval(this.intervalId);
-    this.intervalId = setInterval(() => {
-      if (!this.isPlaying) return;
-      this.playBuzzer();
-    }, 300);
+    try {
+      const now = this.audioCtx.currentTime;
+      const effectiveVol = overrideMute && this.volume <= 0 ? 50 : this.volume;
+      const gainLevel = Math.max(0.05, (effectiveVol / 100) * 0.45);
+
+      // Chime Note 1: 784 Hz (G5)
+      this.synthesizeChimeNote(784, now, 0.13, gainLevel);
+
+      // Chime Note 2: 1046.5 Hz (C6) with 140ms offset
+      this.synthesizeChimeNote(1046.5, now + 0.14, 0.18, gainLevel * 1.05);
+    } catch (e) {
+      console.warn("Warning chime error:", e);
+    }
   }
 
   /**
-   * Stop active alarm
+   * Start repeating drowsiness alarm when detection threshold is exceeded
+   */
+  startDrowsinessAlert() {
+    if (this.isPlaying) return; // Prevent multiple overlapping loops
+    this.isPlaying = true;
+
+    this.initContext();
+    this.playWarningChime();
+
+    if (this.intervalId) clearInterval(this.intervalId);
+    // Repeats every 850ms in a rhythmic cabin alert cadence while warning is active
+    this.intervalId = setInterval(() => {
+      if (!this.isPlaying) return;
+      this.playWarningChime();
+    }, 850);
+  }
+
+  /**
+   * Stop active alarm immediately
    */
   stopDrowsinessAlert() {
     this.isPlaying = false;
@@ -94,6 +121,35 @@ class SoundManager {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
+  }
+
+  /**
+   * User-triggered alert sound test
+   */
+  async testAlertSound() {
+    await this.initContext();
+    this.playWarningChime(true);
+  }
+
+  /**
+   * Update volume level (0-100)
+   */
+  setVolume(newVol) {
+    this.volume = Math.max(0, Math.min(100, Math.round(newVol)));
+    localStorage.setItem("drowsiness_alarm_volume", this.volume.toString());
+  }
+
+  /**
+   * Toggle mute state
+   */
+  toggleMute() {
+    this.isMuted = !this.isMuted;
+    localStorage.setItem("drowsiness_alarm_muted", this.isMuted ? "true" : "false");
+    if (this.isMuted) {
+      // Immediate silence
+      this.stopDrowsinessAlert();
+    }
+    return this.isMuted;
   }
 }
 
