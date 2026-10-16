@@ -1,127 +1,24 @@
 /* ==========================================================================
-   STATE MANAGEMENT & LOCAL STORAGE PERSISTENCE
-   Simplified, reliable driver attentiveness state
+   STATE MANAGEMENT
+   Single-screen Driver Drowsiness Detection state
    ========================================================================== */
-
-const STORAGE_KEYS = {
-  SETTINGS: "vigildrive_settings_v3",
-  SESSIONS: "vigildrive_sessions_v3",
-  THEME: "vigildrive_theme_v3"
-};
-
-const DEFAULT_SETTINGS = {
-  alarmSound: "buzzer",
-  volume: 85,
-  alarmEnabled: true,
-  earThreshold: 0.22,
-  drowsinessDurationSec: 2.0
-};
 
 class StateManager {
   constructor() {
-    this.currentPage = "home";
-    this.theme = localStorage.getItem(STORAGE_KEYS.THEME) || "dark";
-    this.settings = this.loadSettings();
-    this.sessions = this.loadSessions();
-
-    // Live Monitoring Telemetry State
     this.isMonitoring = false;
-    this.sessionSaved = false;
-    this.cameraConnected = false;
-
-    // Detection Status: "Normal", "Possible Drowsiness", "Unable to Assess"
-    this.driverStatus = "Unable to Assess";
-    this.eyeState = "Unable to Assess";
-    this.activeWarningType = "";
+    this.status = "IDLE"; // "ALERT", "DROWSY", "NO_FACE", "CAMERA_UNAVAILABLE", "IDLE"
+    this.statusText = "";
     this.cameraError = null;
-    this.audioBlocked = false;
+    this.activeWarning = false;
 
-    this.faceDetected = false;
-    this.currentEar = 0.28;
-    this.closureSeconds = 0.0;
-
-    // Session Statistics
+    // Session timing and event counting
     this.sessionStartTime = null;
-    this.sessionEndTime = null;
     this.sessionDurationSec = 0;
-    this.sessionWarningsCount = 0;
-    this.currentSessionEvents = [];
-    this.lastCompletedSession = null;
-    this.currentSessionId = null;
+    this.drowsinessEventsCount = 0;
+    this.lastSession = null;
 
+    // Subscribed listeners
     this.subscribers = new Set();
-  }
-
-  loadSettings() {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-      return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : { ...DEFAULT_SETTINGS };
-    } catch (e) {
-      return { ...DEFAULT_SETTINGS };
-    }
-  }
-
-  saveSettings(newSettings) {
-    this.settings = { ...this.settings, ...newSettings };
-    try {
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(this.settings));
-    } catch (e) {}
-    this.notify("settings");
-  }
-
-  loadSessions() {
-    try {
-      let saved = localStorage.getItem(STORAGE_KEYS.SESSIONS);
-      if (!saved) {
-        saved = localStorage.getItem("vigildrive_sessions_v2");
-      }
-      if (!saved) return [];
-      const parsed = JSON.parse(saved);
-      if (!Array.isArray(parsed)) return [];
-
-      return parsed
-        .filter((item) => item && typeof item === "object" && !item.isSample && !String(item.id).startsWith("sess_sample_"))
-        .map((s) => ({
-          id: s.id || `sess_${Date.now()}`,
-          startTime: s.startTime || new Date().toISOString(),
-          endTime: s.endTime || new Date().toISOString(),
-          durationSeconds: typeof s.durationSeconds === "number" ? Math.max(0, Math.round(s.durationSeconds)) : 0,
-          warningEventsCount: typeof s.warningEventsCount === "number" ? Math.max(0, s.warningEventsCount) : (s.events || []).length,
-          events: Array.isArray(s.events)
-            ? s.events.map((ev, idx) => ({
-                id: ev.id || `ev_${idx}`,
-                timestamp: ev.timestamp || "00:00:00",
-                type: "Possible Drowsiness",
-                typeLabel: ev.typeLabel || "Prolonged Eye Closure",
-                duration: typeof ev.duration === "number" ? `${ev.duration.toFixed(1)}s` : String(ev.duration || "0.0s")
-              }))
-            : []
-        }));
-    } catch (e) {
-      return [];
-    }
-  }
-
-  saveSessions() {
-    try {
-      localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(this.sessions));
-    } catch (e) {}
-    this.notify("sessions");
-  }
-
-  setTheme(theme) {
-    this.theme = theme;
-    try {
-      localStorage.setItem(STORAGE_KEYS.THEME, theme);
-    } catch (e) {}
-    document.documentElement.setAttribute("data-theme", theme);
-    this.notify("theme");
-  }
-
-  setPage(page) {
-    this.currentPage = page;
-    window.location.hash = page;
-    this.notify("page");
   }
 
   subscribe(callback) {
@@ -129,86 +26,69 @@ class StateManager {
     return () => this.subscribers.delete(callback);
   }
 
-  notify(changeType) {
+  notify() {
     for (const callback of this.subscribers) {
       try {
-        callback(changeType, this);
-      } catch (err) {
-        console.error("State subscriber error:", err);
+        callback(this);
+      } catch (e) {
+        console.error("State subscriber error:", e);
       }
     }
   }
 
-  startSession() {
-    this.isMonitoring = true;
-    this.sessionSaved = false;
-    this.driverStatus = "Unable to Assess";
-    this.eyeState = "Unable to Assess";
-    this.activeWarningType = "";
-    this.sessionStartTime = new Date().toISOString();
-    this.sessionEndTime = null;
-    this.sessionDurationSec = 0;
-    this.sessionWarningsCount = 0;
-    this.currentSessionEvents = [];
-    this.closureSeconds = 0.0;
-    this.currentSessionId = `sess_${Date.now()}`;
-    this.notify("session_started");
+  setStatus(status, errorMsg = null) {
+    this.status = status;
+    this.cameraError = errorMsg;
+
+    if (status === "ALERT") {
+      this.statusText = "You appear alert.";
+      this.activeWarning = false;
+    } else if (status === "DROWSY") {
+      this.statusText = "Possible drowsiness detected!";
+      this.activeWarning = true;
+    } else if (status === "NO_FACE") {
+      this.statusText = "Face or eyes not detected.";
+      this.activeWarning = false;
+    } else if (status === "CAMERA_UNAVAILABLE") {
+      this.statusText = "Camera unavailable.";
+      this.activeWarning = false;
+    } else {
+      this.statusText = "";
+      this.activeWarning = false;
+    }
+
+    this.notify();
   }
 
-  recordWarningEvent({ typeLabel = "Prolonged Eye Closure", duration = 0 }) {
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString("en-US", { hour12: true });
-    const durSec = typeof duration === "number" ? duration : parseFloat(duration) || 0;
+  startSession() {
+    this.isMonitoring = true;
+    this.sessionStartTime = Date.now();
+    this.sessionDurationSec = 0;
+    this.drowsinessEventsCount = 0;
+    this.lastSession = null;
+    this.setStatus("NO_FACE");
+  }
 
-    const event = {
-      id: `ev_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-      timestamp: timeStr,
-      isoTimestamp: now.toISOString(),
-      type: "Possible Drowsiness",
-      typeLabel: typeLabel,
-      duration: `${durSec.toFixed(1)}s`
-    };
-
-    this.sessionWarningsCount++;
-    this.currentSessionEvents.push(event);
-    this.notify("warning_recorded");
-    return event;
+  recordDrowsinessEvent() {
+    this.drowsinessEventsCount++;
+    this.notify();
   }
 
   stopSession() {
-    if (!this.isMonitoring || this.sessionSaved) return;
+    if (!this.isMonitoring) return null;
 
-    this.sessionSaved = true;
-    this.sessionEndTime = new Date().toISOString();
-
-    const completedSession = {
-      id: this.currentSessionId || `sess_${Date.now()}`,
-      startTime: this.sessionStartTime || new Date(Date.now() - this.sessionDurationSec * 1000).toISOString(),
-      endTime: this.sessionEndTime,
+    const summary = {
       durationSeconds: this.sessionDurationSec,
-      warningEventsCount: this.sessionWarningsCount,
-      events: [...this.currentSessionEvents]
+      drowsinessEventsCount: this.drowsinessEventsCount
     };
 
-    if (this.sessionDurationSec >= 1 || this.currentSessionEvents.length > 0) {
-      this.sessions.unshift(completedSession);
-      this.saveSessions();
-    }
-
-    this.lastCompletedSession = completedSession;
+    this.lastSession = summary;
     this.isMonitoring = false;
-    this.driverStatus = "Unable to Assess";
-    this.eyeState = "Unable to Assess";
-    this.activeWarningType = "";
-    this.closureSeconds = 0.0;
-    this.notify("session_stopped");
-  }
-
-  clearSessions() {
-    this.sessions = [];
-    this.lastCompletedSession = null;
-    this.saveSessions();
-    this.notify("sessions_cleared");
+    this.status = "IDLE";
+    this.statusText = "";
+    this.activeWarning = false;
+    this.notify();
+    return summary;
   }
 }
 

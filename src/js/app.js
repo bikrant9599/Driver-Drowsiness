@@ -1,253 +1,231 @@
 /* ==========================================================================
-   APPLICATION CONTROLLER & ROUTER
-   Simple 3-option navigation: Home, Live Monitoring, Session Summary
+   DRIVER DROWSINESS DETECTION - SINGLE SCREEN APPLICATION
+   Clean, simple, intuitive interface with zero unnecessary complexity
    ========================================================================== */
 
-import { ICONS } from "./utils.js";
+import { ICONS, formatDurationText } from "./utils.js";
 import { appState } from "./state.js";
 import { visionEngine } from "./vision.js";
 
-// 3 Primary Pages
-import { renderHomePage } from "./pages/home.js";
-import { renderLivePage } from "./pages/live.js";
-import { renderSummaryPage } from "./pages/summary.js";
-
-const PAGE_META = {
-  home: { title: "Home", subtitle: "AI Driver Drowsiness Detection" },
-  live: { title: "Live Monitoring", subtitle: "Real-time webcam attentiveness tracking" },
-  summary: { title: "Session Summary", subtitle: "Monitoring duration and event timestamps" }
-};
-
-class Application {
+class SingleScreenApp {
   constructor() {
     this.root = document.getElementById("app-root");
-    this.contentMount = null;
-    this.sessionTimerInterval = null;
+    this.timerInterval = null;
   }
 
   init() {
-    // Apply saved theme
-    document.documentElement.setAttribute("data-theme", appState.theme);
+    // Apply saved theme (default dark)
+    const savedTheme = localStorage.getItem("drowsiness_theme") || "dark";
+    document.documentElement.setAttribute("data-theme", savedTheme);
 
-    // Render Shell Layout
-    this.renderLayout();
+    // Initial render
+    this.render();
 
-    // Bind Global Hash Router
-    window.addEventListener("hashchange", () => this.handleRouting());
-    this.handleRouting();
-
-    // Session Duration Timer
-    this.startSessionTimer();
-
-    // Subscribe to State Changes
-    appState.subscribe((changeType) => this.onStateChange(changeType));
-  }
-
-  renderLayout() {
-    this.root.innerHTML = `
-      <!-- Desktop Sidebar -->
-      <aside class="sidebar" id="app-sidebar">
-        <div class="sidebar-header">
-          <div class="brand-logo-icon">
-            ${ICONS.logo}
-          </div>
-          <div class="brand-title">
-            <span class="brand-name">AI Driver Drowsiness</span>
-            <span class="brand-sub">Safety Telematics</span>
-          </div>
-        </div>
-
-        <nav class="sidebar-nav">
-          <a href="#home" class="nav-item" data-route="home">
-            ${ICONS.home}
-            <span>Home</span>
-          </a>
-          <a href="#live" class="nav-item" data-route="live">
-            ${ICONS.eye}
-            <span>Live Monitoring</span>
-          </a>
-          <a href="#summary" class="nav-item" data-route="summary">
-            ${ICONS.reports}
-            <span>Session Summary</span>
-          </a>
-        </nav>
-
-        <div class="sidebar-footer">
-          <button class="btn btn-secondary btn-sm" id="sidebar-theme-toggle" style="width: 100%;" title="Toggle Theme">
-            ${appState.theme === 'dark' ? ICONS.sun : ICONS.moon}
-            <span id="sidebar-theme-label">${appState.theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
-          </button>
-        </div>
-      </aside>
-
-      <!-- Mobile Backdrop -->
-      <div class="mobile-backdrop" id="mobile-backdrop"></div>
-
-      <!-- Main Layout Content Area -->
-      <div class="main-wrapper">
-        <header class="app-header">
-          <div class="header-left">
-            <button class="mobile-menu-toggle" id="mobile-menu-btn" aria-label="Open menu">
-              ${ICONS.menu}
-            </button>
-            <div class="page-breadcrumb">
-              <h1 class="page-title" id="page-header-title">Home</h1>
-              <span class="page-subtitle" id="page-header-subtitle">AI Driver Drowsiness Detection</span>
-            </div>
-          </div>
-
-          <div class="header-right">
-            <button class="btn btn-secondary btn-icon" id="header-theme-toggle" title="Toggle Theme">
-              ${appState.theme === 'dark' ? ICONS.sun : ICONS.moon}
-            </button>
-          </div>
-        </header>
-
-        <main class="main-content" id="main-content-mount"></main>
-      </div>
-
-      <!-- Mobile Bottom Navigation Bar: Only 3 primary items -->
-      <nav class="mobile-bottom-nav">
-        <a href="#home" class="mobile-nav-link" data-route="home">
-          ${ICONS.home}
-          <span>Home</span>
-        </a>
-        <a href="#live" class="mobile-nav-link" data-route="live">
-          ${ICONS.eye}
-          <span>Live</span>
-        </a>
-        <a href="#summary" class="mobile-nav-link" data-route="summary">
-          ${ICONS.reports}
-          <span>Summary</span>
-        </a>
-      </nav>
-    `;
-
-    this.contentMount = document.getElementById("main-content-mount");
-
-    // Theme Toggle Handler
-    const toggleTheme = () => {
-      const nextTheme = appState.theme === "dark" ? "light" : "dark";
-      appState.setTheme(nextTheme);
-      this.updateThemeIcons();
-    };
-
-    document.getElementById("sidebar-theme-toggle").addEventListener("click", toggleTheme);
-    document.getElementById("header-theme-toggle").addEventListener("click", toggleTheme);
-
-    // Mobile Drawer Handlers
-    const sidebar = document.getElementById("app-sidebar");
-    const backdrop = document.getElementById("mobile-backdrop");
-    const mobileBtn = document.getElementById("mobile-menu-btn");
-
-    const toggleMobileMenu = () => {
-      sidebar.classList.toggle("mobile-open");
-      backdrop.classList.toggle("active");
-    };
-
-    mobileBtn.addEventListener("click", toggleMobileMenu);
-    backdrop.addEventListener("click", toggleMobileMenu);
-
-    sidebar.querySelectorAll(".nav-item").forEach((link) => {
-      link.addEventListener("click", () => {
-        sidebar.classList.remove("mobile-open");
-        backdrop.classList.remove("active");
-      });
-    });
-  }
-
-  updateThemeIcons() {
-    const isDark = appState.theme === "dark";
-    const headerBtn = document.getElementById("header-theme-toggle");
-    if (headerBtn) headerBtn.innerHTML = isDark ? ICONS.sun : ICONS.moon;
-
-    const sidebarBtn = document.getElementById("sidebar-theme-toggle");
-    if (sidebarBtn) {
-      sidebarBtn.innerHTML = `
-        ${isDark ? ICONS.sun : ICONS.moon}
-        <span id="sidebar-theme-label">${isDark ? 'Light Mode' : 'Dark Mode'}</span>
-      `;
-    }
-  }
-
-  handleRouting() {
-    let rawRoute = window.location.hash.replace("#", "").toLowerCase() || "home";
-
-    let route = rawRoute;
-    if (route === "dashboard") route = "home";
-    if (route === "reports") route = "summary";
-    if (route === "settings") route = "home";
-
-    if (!PAGE_META[route]) {
-      route = "home";
-    }
-
-    appState.currentPage = route;
-
-    // Update Nav Active State
-    document.querySelectorAll(".nav-item, .mobile-nav-link").forEach((link) => {
-      if (link.dataset.route === route) {
-        link.classList.add("active");
-      } else {
-        link.classList.remove("active");
-      }
+    // Subscribe to state changes
+    appState.subscribe(() => {
+      this.updateStatusAndUI();
     });
 
-    // Update Header Titles
-    const meta = PAGE_META[route];
-    const headerTitle = document.getElementById("page-header-title");
-    const headerSubtitle = document.getElementById("page-header-subtitle");
-    if (headerTitle) headerTitle.textContent = meta.title;
-    if (headerSubtitle) headerSubtitle.textContent = meta.subtitle;
-
-    // Stop active camera if navigating away from live page while session stopped
-    if (route !== "live" && !appState.isMonitoring) {
-      visionEngine.stopCamera();
-    }
-
-    // Mount page view
-    this.contentMount.innerHTML = "";
-    window.scrollTo({ top: 0, behavior: "instant" });
-
-    let viewNode = null;
-    if (route === "home") {
-      viewNode = renderHomePage();
-    } else if (route === "live") {
-      viewNode = renderLivePage();
-    } else if (route === "summary") {
-      viewNode = renderSummaryPage();
-    }
-
-    if (viewNode) {
-      this.contentMount.appendChild(viewNode);
-    }
-  }
-
-  startSessionTimer() {
-    this.sessionTimerInterval = setInterval(() => {
+    // Duration timer ticker
+    this.timerInterval = setInterval(() => {
       if (appState.isMonitoring) {
         appState.sessionDurationSec++;
       }
     }, 1000);
   }
 
-  onStateChange(changeType) {
-    if (changeType === "page") {
-      this.handleRouting();
+  render() {
+    const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+
+    this.root.innerHTML = `
+      <div class="app-container">
+        <!-- Top Utility Bar (Theme toggle only) -->
+        <header class="app-top-bar">
+          <button class="theme-toggle-btn" id="theme-toggle-btn" aria-label="Toggle Dark and Light Mode" title="Toggle Theme">
+            ${isDark ? ICONS.sun : ICONS.moon}
+          </button>
+        </header>
+
+        <!-- Main Screen Card -->
+        <main class="main-card" id="main-card">
+          ${this.getMainCardContent()}
+        </main>
+
+        <!-- Safety Notice -->
+        <footer class="app-safety-notice">
+          Safety Notice: This application is a prototype assistive tool and must not replace proper rest or safe driving decisions. Always stop and rest if you feel tired.
+        </footer>
+      </div>
+    `;
+
+    this.bindEvents();
+  }
+
+  getMainCardContent() {
+    // 1. Session Summary State (Shown right after stopping)
+    if (!appState.isMonitoring && appState.lastSession) {
+      return `
+        <h1 class="app-title">Driver Drowsiness Detection</h1>
+        <p class="app-instruction">Session Summary</p>
+
+        <div class="summary-box">
+          <div class="summary-item">
+            <span class="summary-label">Monitoring Duration</span>
+            <span class="summary-value">${formatDurationText(appState.lastSession.durationSeconds)}</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">Possible Drowsiness Events Detected</span>
+            <span class="summary-value ${appState.lastSession.drowsinessEventsCount > 0 ? 'text-danger' : 'text-safe'}">
+              ${appState.lastSession.drowsinessEventsCount}
+            </span>
+          </div>
+        </div>
+
+        <button class="btn btn-primary btn-large" id="start-again-btn">
+          ${ICONS.play} START AGAIN
+        </button>
+      `;
+    }
+
+    // 2. Monitoring Active State
+    if (appState.isMonitoring) {
+      const statusClass = this.getStatusClass();
+
+      return `
+        <h1 class="app-title">Driver Drowsiness Detection</h1>
+        <p class="app-instruction">Monitor your eyes to detect signs of drowsiness.</p>
+
+        <!-- One Large Status Message -->
+        <div class="status-banner ${statusClass}" id="main-status-banner">
+          <span class="status-indicator-dot"></span>
+          <span class="status-text" id="status-text">${appState.statusText || 'Starting camera...'}</span>
+        </div>
+
+        <!-- Camera Preview -->
+        <div class="camera-preview-wrapper ${appState.activeWarning ? 'alert-flashing' : ''}" id="camera-preview-wrapper">
+          <video id="webcam-video" autoplay playsinline muted></video>
+          <canvas id="overlay-canvas"></canvas>
+          ${
+            appState.status === "CAMERA_UNAVAILABLE"
+              ? `<div class="camera-unavailable-overlay">
+                   <p><strong>Camera Unavailable</strong></p>
+                   <p class="error-detail">${appState.cameraError || 'Please allow camera permissions and ensure no other application is using your webcam.'}</p>
+                 </div>`
+              : ""
+          }
+        </div>
+
+        <!-- One STOP MONITORING Button -->
+        <button class="btn btn-danger btn-large" id="stop-monitoring-btn">
+          ${ICONS.stop} STOP MONITORING
+        </button>
+      `;
+    }
+
+    // 3. Ready / Initial State
+    return `
+      <h1 class="app-title">Driver Drowsiness Detection</h1>
+      <p class="app-instruction">Monitor your eyes to detect signs of drowsiness.</p>
+
+      <div class="start-wrapper">
+        <button class="btn btn-primary btn-large" id="start-monitoring-btn">
+          ${ICONS.play} START MONITORING
+        </button>
+      </div>
+    `;
+  }
+
+  getStatusClass() {
+    if (appState.status === "ALERT") return "status-alert-green";
+    if (appState.status === "DROWSY") return "status-drowsy-red";
+    if (appState.status === "NO_FACE") return "status-noface-grey";
+    if (appState.status === "CAMERA_UNAVAILABLE") return "status-unavailable-grey";
+    return "status-noface-grey";
+  }
+
+  bindEvents() {
+    // Theme toggle
+    const themeBtn = document.getElementById("theme-toggle-btn");
+    if (themeBtn) {
+      themeBtn.onclick = () => {
+        const cur = document.documentElement.getAttribute("data-theme") || "dark";
+        const next = cur === "dark" ? "light" : "dark";
+        document.documentElement.setAttribute("data-theme", next);
+        localStorage.setItem("drowsiness_theme", next);
+        themeBtn.innerHTML = next === "dark" ? ICONS.sun : ICONS.moon;
+      };
+    }
+
+    // Start Monitoring button
+    const startBtn = document.getElementById("start-monitoring-btn");
+    if (startBtn) {
+      startBtn.onclick = () => this.startMonitoringFlow();
+    }
+
+    // Start Again button (from summary)
+    const startAgainBtn = document.getElementById("start-again-btn");
+    if (startAgainBtn) {
+      startAgainBtn.onclick = () => this.startMonitoringFlow();
+    }
+
+    // Stop Monitoring button
+    const stopBtn = document.getElementById("stop-monitoring-btn");
+    if (stopBtn) {
+      stopBtn.onclick = () => this.stopMonitoringFlow();
+    }
+  }
+
+  async startMonitoringFlow() {
+    appState.startSession();
+    this.render();
+
+    const video = document.getElementById("webcam-video");
+    const canvas = document.getElementById("overlay-canvas");
+
+    if (video && canvas) {
+      await visionEngine.startCamera(video, canvas);
+    }
+  }
+
+  stopMonitoringFlow() {
+    visionEngine.stopCamera();
+    appState.stopSession();
+    this.render();
+  }
+
+  updateStatusAndUI() {
+    if (!appState.isMonitoring) return;
+
+    // Fast-path DOM update for real-time video tracking
+    const statusBanner = document.getElementById("main-status-banner");
+    const statusText = document.getElementById("status-text");
+    const previewWrapper = document.getElementById("camera-preview-wrapper");
+
+    if (statusBanner && statusText) {
+      statusBanner.className = `status-banner ${this.getStatusClass()}`;
+      statusText.textContent = appState.statusText;
+    }
+
+    if (previewWrapper) {
+      if (appState.activeWarning) {
+        previewWrapper.classList.add("alert-flashing");
+      } else {
+        previewWrapper.classList.remove("alert-flashing");
+      }
     }
   }
 }
 
 // Bootstrap on DOM ready
 document.addEventListener("DOMContentLoaded", () => {
-  const app = new Application();
+  const app = new SingleScreenApp();
   app.init();
 
-  const handleUnexpectedTermination = () => {
-    if (appState.isMonitoring && !appState.sessionSaved) {
+  // Safely stop session on unexpected window close
+  window.addEventListener("beforeunload", () => {
+    if (appState.isMonitoring) {
+      visionEngine.stopCamera();
       appState.stopSession();
     }
-  };
-  window.addEventListener("beforeunload", handleUnexpectedTermination);
-  window.addEventListener("pagehide", handleUnexpectedTermination);
+  });
 });

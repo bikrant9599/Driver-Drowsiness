@@ -1,13 +1,11 @@
 /* ==========================================================================
    COMPUTER VISION & EYE-CLOSURE DETECTION ENGINE
    MediaPipe Face Landmarker with real-time Eye Aspect Ratio (EAR) tracking
-   Detection statuses: "Normal", "Possible Drowsiness", "Unable to Assess"
    ========================================================================== */
 
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import { appState } from "./state.js";
 import { soundManager } from "./audio.js";
-import { showToast } from "./utils.js";
 
 // Euclidean distance between 2D points
 function distance(p1, p2) {
@@ -20,12 +18,12 @@ function distance(p1, p2) {
  */
 function computeEAR(eyeLandmarks) {
   if (!eyeLandmarks || eyeLandmarks.length < 6) return 0.28;
-  const p1 = eyeLandmarks[0]; // Outer corner
-  const p2 = eyeLandmarks[1]; // Top-outer
-  const p3 = eyeLandmarks[2]; // Top-inner
-  const p4 = eyeLandmarks[3]; // Inner corner
-  const p5 = eyeLandmarks[4]; // Bottom-inner
-  const p6 = eyeLandmarks[5]; // Bottom-outer
+  const p1 = eyeLandmarks[0];
+  const p2 = eyeLandmarks[1];
+  const p3 = eyeLandmarks[2];
+  const p4 = eyeLandmarks[3];
+  const p5 = eyeLandmarks[4];
+  const p6 = eyeLandmarks[5];
 
   const vert1 = distance(p2, p6);
   const vert2 = distance(p3, p5);
@@ -35,11 +33,10 @@ function computeEAR(eyeLandmarks) {
   return (vert1 + vert2) / (2.0 * horiz);
 }
 
-// 16-point eye contours for subtle overlay
+// Landmark indices for eyes
 const LEFT_EYE_FULL_CONTOUR = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246];
 const RIGHT_EYE_FULL_CONTOUR = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398];
 
-// 6 key landmark indices used specifically for EAR calculation
 const LEFT_EYE_EAR_INDICES = [33, 160, 158, 133, 153, 144];
 const RIGHT_EYE_EAR_INDICES = [362, 385, 387, 263, 373, 380];
 
@@ -51,30 +48,22 @@ class VisionEngine {
     this.stream = null;
     this.animFrameId = null;
 
-    // MediaPipe Vision Pipelines
     this.faceLandmarker = null;
     this.isLandmarkerReady = false;
     this.isInitializingLandmarker = false;
     this.isStartingCamera = false;
-    this.faceMesh = null; // CDN fallback
+    this.faceMesh = null;
     this.isFaceMeshReady = false;
 
-    // Temporal smoothing
     this.lastFrameTime = performance.now();
     this.smoothedEar = 0.28;
-
-    // Duration trackers
     this.consecutiveClosedSeconds = 0.0;
     this.lastFaceSeenTime = performance.now();
-    this.faceLossGraceSec = 0.6; // 600ms tolerance for momentary movement
-
-    // Incident latch to record ONE event per sustained closure
     this.closureIncidentActive = false;
+    this.drowsinessThresholdSec = 2.0;
+    this.earThreshold = 0.22;
   }
 
-  /**
-   * Initialize MediaPipe Face Landmarker (@mediapipe/tasks-vision)
-   */
   async initFaceLandmarker() {
     if (this.faceLandmarker && this.isLandmarkerReady) return true;
     if (this.isInitializingLandmarker) return false;
@@ -85,7 +74,6 @@ class VisionEngine {
         "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
       );
 
-      // Attempt GPU delegate first, fallback to CPU
       try {
         this.faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
           baseOptions: {
@@ -121,9 +109,6 @@ class VisionEngine {
     }
   }
 
-  /**
-   * Secondary fallback: Classical MediaPipe FaceMesh via CDN window.FaceMesh
-   */
   async initFaceMesh() {
     if (this.faceMesh && this.isFaceMeshReady) return true;
     if (typeof window !== "undefined" && window.FaceMesh) {
@@ -149,9 +134,6 @@ class VisionEngine {
     return false;
   }
 
-  /**
-   * Start optical camera stream and detection processing
-   */
   async startCamera(videoEl, canvasEl) {
     if (this.isStartingCamera) {
       return { success: false, error: "Camera initialization in progress." };
@@ -162,26 +144,18 @@ class VisionEngine {
     this.canvasElement = canvasEl;
     this.canvasCtx = canvasEl ? canvasEl.getContext("2d", { willReadFrequently: true }) : null;
 
-    // Reset runtime timers and states
     this.consecutiveClosedSeconds = 0.0;
     this.closureIncidentActive = false;
     this.smoothedEar = 0.28;
     this.lastFaceSeenTime = performance.now();
-    appState.cameraError = null;
 
-    // Initialize Web Audio early on user gesture
     soundManager.initContext();
 
-    // Check mediaDevices support
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       this.isStartingCamera = false;
-      const errDetail = "Camera is not supported in this browser.";
-      appState.cameraConnected = false;
-      appState.driverStatus = "Unable to Assess";
-      appState.eyeState = "Unable to Assess";
-      appState.cameraError = errDetail;
-      showToast("Camera Error", errDetail, "danger");
-      return { success: false, error: errDetail };
+      const errorMsg = "Webcam is not supported in this browser.";
+      appState.setStatus("CAMERA_UNAVAILABLE", errorMsg);
+      return { success: false, error: errorMsg };
     }
 
     try {
@@ -200,15 +174,12 @@ class VisionEngine {
         this.videoElement.srcObject = this.stream;
         await new Promise((resolve) => {
           this.videoElement.onloadedmetadata = () => resolve();
-          setTimeout(resolve, 400);
+          setTimeout(resolve, 300);
         });
         await this.videoElement.play();
       }
 
-      appState.cameraConnected = true;
-      appState.cameraError = null;
-      appState.driverStatus = "Unable to Assess"; // Becomes Normal once face & eyes are recognized
-      appState.eyeState = "Unable to Assess";
+      appState.setStatus("NO_FACE");
 
       this.initFaceLandmarker().then((ready) => {
         if (!ready) {
@@ -220,12 +191,7 @@ class VisionEngine {
       return { success: true };
     } catch (err) {
       console.error("Camera access error:", err);
-      appState.cameraConnected = false;
-      appState.faceDetected = false;
-      appState.driverStatus = "Unable to Assess";
-      appState.eyeState = "Unable to Assess";
-
-      let errorMsg = "Could not access camera.";
+      let errorMsg = "Camera unavailable. Please check permissions.";
       if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
         errorMsg = "Camera access denied. Please allow camera permissions in your browser.";
       } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
@@ -234,17 +200,13 @@ class VisionEngine {
         errorMsg = "Camera is already in use by another application.";
       }
 
-      appState.cameraError = errorMsg;
-      showToast("Camera Error", errorMsg, "danger");
+      appState.setStatus("CAMERA_UNAVAILABLE", errorMsg);
       return { success: false, error: errorMsg };
     } finally {
       this.isStartingCamera = false;
     }
   }
 
-  /**
-   * Stop camera tracks, loops, and reset states
-   */
   stopCamera() {
     if (this.animFrameId) {
       cancelAnimationFrame(this.animFrameId);
@@ -265,18 +227,10 @@ class VisionEngine {
     }
 
     soundManager.stopDrowsinessAlert();
-    appState.cameraConnected = false;
-    appState.faceDetected = false;
-    appState.driverStatus = "Unable to Assess";
-    appState.eyeState = "Unable to Assess";
-    appState.closureSeconds = 0.0;
     this.consecutiveClosedSeconds = 0.0;
     this.closureIncidentActive = false;
   }
 
-  /**
-   * Main requestAnimationFrame video processing loop
-   */
   startLoop() {
     const loop = async (timestamp) => {
       if (!appState.isMonitoring) return;
@@ -284,7 +238,7 @@ class VisionEngine {
       const delta = Math.min(0.2, (timestamp - this.lastFrameTime) / 1000);
       this.lastFrameTime = timestamp;
 
-      await this.processLiveCameraFrame(timestamp, delta);
+      await this.processLiveFrame(timestamp, delta);
       this.animFrameId = requestAnimationFrame(loop);
     };
 
@@ -292,69 +246,56 @@ class VisionEngine {
     this.animFrameId = requestAnimationFrame(loop);
   }
 
-  /**
-   * Process a live frame through MediaPipe Face Landmarker or fallbacks
-   */
-  async processLiveCameraFrame(timestamp, delta) {
+  async processLiveFrame(timestamp, delta) {
     if (!this.videoElement || this.videoElement.readyState < 2) return;
 
     const width = (this.canvasElement.width = this.videoElement.videoWidth || 640);
     const height = (this.canvasElement.height = this.videoElement.videoHeight || 480);
 
-    // 1. Primary: MediaPipe FaceLandmarker (@mediapipe/tasks-vision)
+    // 1. Primary: MediaPipe FaceLandmarker
     if (this.isLandmarkerReady && this.faceLandmarker) {
       try {
         const results = this.faceLandmarker.detectForVideo(this.videoElement, timestamp);
         if (results && results.faceLandmarks && results.faceLandmarks.length > 0) {
-          this.handleLandmarkerDetection(results, width, height, delta);
+          this.handleDetection(results, width, height, delta);
           return;
         } else {
-          this.handleFaceLoss(width, height, delta);
+          this.handleFaceLoss(width, height);
           return;
         }
       } catch (err) {
-        console.warn("FaceLandmarker detection error:", err);
+        console.warn("FaceLandmarker error:", err);
       }
     }
 
-    // 2. Secondary fallback: MediaPipe FaceMesh (window.FaceMesh)
+    // 2. Secondary: MediaPipe FaceMesh CDN
     if (this.isFaceMeshReady && this.faceMesh) {
       try {
         await this.faceMesh.send({ image: this.videoElement });
         return;
-      } catch (err) {
-        // Fallback to Canvas CV below
-      }
+      } catch (err) {}
     }
 
-    // 3. Tertiary fallback: Canvas Computer Vision
+    // 3. Fallback: Canvas Computer Vision
     this.processFallbackCV(width, height, delta);
   }
 
-  /**
-   * Handles detection output from MediaPipe FaceLandmarker
-   */
-  handleLandmarkerDetection(results, width, height, delta) {
+  handleDetection(results, width, height, delta) {
     this.lastFaceSeenTime = performance.now();
-    appState.faceDetected = true;
 
     const rawLandmarks = results.faceLandmarks[0];
-
-    // Normalize coordinates to pixel space and mirror X for natural driver view
     const pts = rawLandmarks.map((p) => ({
       x: (1 - p.x) * width,
       y: p.y * height,
       z: p.z || 0
     }));
 
-    // Eye Aspect Ratio (EAR)
     const leftEyePts = LEFT_EYE_EAR_INDICES.map((i) => pts[i]);
     const rightEyePts = RIGHT_EYE_EAR_INDICES.map((i) => pts[i]);
     const leftEAR = computeEAR(leftEyePts);
     const rightEAR = computeEAR(rightEyePts);
     const avgEAR = (leftEAR + rightEAR) / 2;
 
-    // Optional neural blendshape score
     let blinkScore = null;
     if (results.faceBlendshapes && results.faceBlendshapes.length > 0) {
       const cats = results.faceBlendshapes[0].categories;
@@ -363,21 +304,13 @@ class VisionEngine {
       blinkScore = (bL + bR) / 2;
     }
 
-    // Temporal smoothing on EAR
-    const alphaEar = 0.70;
-    this.smoothedEar = alphaEar * avgEAR + (1 - alphaEar) * this.smoothedEar;
-    appState.currentEar = Number(this.smoothedEar.toFixed(2));
+    const alpha = 0.70;
+    this.smoothedEar = alpha * avgEAR + (1 - alpha) * this.smoothedEar;
 
-    // Core Drowsiness Logic: Normal, Possible Drowsiness, or Unable to Assess
-    this.evaluateDrowsinessLogic(this.smoothedEar, blinkScore, delta);
-
-    // Render subtle visual overlay
+    this.evaluateDrowsiness(this.smoothedEar, blinkScore, delta);
     this.drawSubtleOverlay(pts, leftEyePts, rightEyePts, width, height);
   }
 
-  /**
-   * Results callback for classical window.FaceMesh
-   */
   onLegacyFaceMeshResults(results) {
     if (!this.canvasCtx || !this.canvasElement) return;
     const width = this.canvasElement.width;
@@ -385,7 +318,6 @@ class VisionEngine {
 
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
       this.lastFaceSeenTime = performance.now();
-      appState.faceDetected = true;
 
       const landmarks = results.multiFaceLandmarks[0];
       const pts = landmarks.map((p) => ({
@@ -401,110 +333,72 @@ class VisionEngine {
       const avgEAR = (leftEAR + rightEAR) / 2;
 
       this.smoothedEar = 0.7 * avgEAR + 0.3 * this.smoothedEar;
-      appState.currentEar = Number(this.smoothedEar.toFixed(2));
 
-      this.evaluateDrowsinessLogic(this.smoothedEar, null, 0.033);
+      this.evaluateDrowsiness(this.smoothedEar, null, 0.033);
       this.drawSubtleOverlay(pts, leftEyePts, rightEyePts, width, height);
     } else {
-      this.handleFaceLoss(width, height, 0.033);
+      this.handleFaceLoss(width, height);
     }
   }
 
-  /**
-   * Graceful face loss handling
-   */
-  handleFaceLoss(width, height, delta) {
-    const timeSinceFace = (performance.now() - this.lastFaceSeenTime) / 1000;
+  handleFaceLoss(width, height) {
+    const elapsedSinceFace = (performance.now() - this.lastFaceSeenTime) / 1000;
+    if (elapsedSinceFace < 0.5) return; // momentary tolerance
 
-    if (timeSinceFace < this.faceLossGraceSec) {
-      return;
-    }
-
-    // Face is absent from camera frame
-    appState.faceDetected = false;
-    appState.eyeState = "Unable to Assess";
-    appState.driverStatus = "Unable to Assess";
-    appState.activeWarningType = "";
-
-    // Reset continuous closure timer
+    appState.setStatus("NO_FACE");
     this.consecutiveClosedSeconds = 0.0;
     this.closureIncidentActive = false;
-    appState.closureSeconds = 0.0;
     soundManager.stopDrowsinessAlert();
 
-    this.drawFaceLostNotice(width, height);
+    if (this.canvasCtx) {
+      this.canvasCtx.clearRect(0, 0, width, height);
+    }
   }
 
-  /**
-   * Core Drowsiness Evaluation Logic
-   * Status options strictly: "Normal", "Possible Drowsiness", "Unable to Assess"
-   */
-  evaluateDrowsinessLogic(earVal, blendshapeBlinkScore, delta) {
-    const earThreshold = appState.settings.earThreshold;
-    const alertThreshold = appState.settings.drowsinessDurationSec;
-
-    const isClosedByEar = earVal < earThreshold;
+  evaluateDrowsiness(earVal, blendshapeBlinkScore, delta) {
+    const isClosedByEar = earVal < this.earThreshold;
     const isClosedByBlendshape = blendshapeBlinkScore !== null && blendshapeBlinkScore > 0.65;
-    const isEyeClosed = isClosedByEar || isClosedByBlendshape;
+    const isClosed = isClosedByEar || isClosedByBlendshape;
 
-    if (isEyeClosed && appState.faceDetected) {
+    if (isClosed) {
       this.consecutiveClosedSeconds += delta;
-      appState.closureSeconds = Number(this.consecutiveClosedSeconds.toFixed(1));
 
-      if (this.consecutiveClosedSeconds >= alertThreshold) {
-        // Prolonged Eye Closure detected: trigger warning and audible alarm
-        appState.driverStatus = "Possible Drowsiness";
-        appState.eyeState = "Possible Drowsiness";
-        appState.activeWarningType = "PROLONGED EYE CLOSURE";
-        soundManager.startDrowsinessAlert(appState.activeWarningType);
+      if (this.consecutiveClosedSeconds >= this.drowsinessThresholdSec) {
+        // Prolonged eye closure reached detection threshold
+        appState.setStatus("DROWSY");
+        soundManager.startDrowsinessAlert();
 
         if (!this.closureIncidentActive) {
           this.closureIncidentActive = true;
-          appState.recordWarningEvent({
-            typeLabel: "Prolonged Eye Closure",
-            duration: this.consecutiveClosedSeconds
-          });
+          appState.recordDrowsinessEvent();
         }
       } else if (this.consecutiveClosedSeconds >= 0.35) {
-        // Eyes closing longer than standard blink
-        appState.driverStatus = "Possible Drowsiness";
-        appState.eyeState = "Possible Drowsiness";
-        appState.activeWarningType = "";
+        // Possible drowsiness
+        appState.setStatus("DROWSY");
         soundManager.stopDrowsinessAlert();
       } else {
-        // Standard rapid blink
-        appState.driverStatus = "Normal";
-        appState.eyeState = "Normal";
-        appState.activeWarningType = "";
+        // Natural blink
+        appState.setStatus("ALERT");
         soundManager.stopDrowsinessAlert();
       }
     } else {
-      // Eyes are open and face is detected: Normal operation
+      // Eyes open and face detected: user appears alert
       this.consecutiveClosedSeconds = 0.0;
-      appState.closureSeconds = 0.0;
       this.closureIncidentActive = false;
-      appState.driverStatus = "Normal";
-      appState.eyeState = "Normal";
-      appState.activeWarningType = "";
+      appState.setStatus("ALERT");
       soundManager.stopDrowsinessAlert();
     }
   }
 
-  /**
-   * Canvas Computer Vision Fallback
-   */
   processFallbackCV(width, height, delta) {
     if (!this.canvasCtx) return;
-
     this.canvasCtx.clearRect(0, 0, width, height);
     this.lastFaceSeenTime = performance.now();
-    appState.faceDetected = true;
 
     const cx = width / 2;
     const cy = height * 0.45;
     const boxW = width * 0.42;
     const boxH = height * 0.55;
-
     const leftEyeX = cx - boxW * 0.22;
     const rightEyeX = cx + boxW * 0.22;
     const eyesY = cy - boxH * 0.08;
@@ -536,15 +430,9 @@ class VisionEngine {
 
     const avgEar = (leftEar + rightEar) / 2;
     this.smoothedEar = 0.7 * avgEar + 0.3 * this.smoothedEar;
-    appState.currentEar = Number(this.smoothedEar.toFixed(2));
-
-    this.evaluateDrowsinessLogic(this.smoothedEar, null, delta);
+    this.evaluateDrowsiness(this.smoothedEar, null, delta);
     this.drawSimpleReticle(cx - boxW / 2, cy - boxH / 2, boxW, boxH);
   }
-
-  // =========================================================================
-  // Visual Overlays on Canvas
-  // =========================================================================
 
   drawSubtleOverlay(pts, leftEyePts, rightEyePts, width, height) {
     const ctx = this.canvasCtx;
@@ -553,11 +441,10 @@ class VisionEngine {
     ctx.clearRect(0, 0, width, height);
     ctx.save();
 
-    const isDrowsy = appState.activeWarningType !== "";
-    const isClosing = appState.driverStatus === "Possible Drowsiness";
-    const statusColor = isDrowsy ? "#ef4444" : isClosing ? "#f59e0b" : "#10b981";
+    const isDrowsy = appState.status === "DROWSY";
+    const statusColor = isDrowsy ? "#ef4444" : "#10b981";
 
-    // 1. Calculate Face Bounding Box
+    // Face reticle
     let minX = width;
     let maxX = 0;
     let minY = height;
@@ -578,8 +465,8 @@ class VisionEngine {
 
     this.drawSimpleReticle(boxX, boxY, boxW, boxH, statusColor);
 
-    // 2. Draw Subtle Eye Contours
-    const drawEye = (indices, earPts) => {
+    // Eye contours
+    const drawEye = (indices) => {
       ctx.beginPath();
       const firstPt = pts[indices[0]];
       ctx.moveTo(firstPt.x, firstPt.y);
@@ -588,23 +475,13 @@ class VisionEngine {
         ctx.lineTo(pt.x, pt.y);
       }
       ctx.closePath();
-
       ctx.strokeStyle = statusColor;
       ctx.lineWidth = 1.75;
       ctx.stroke();
-
-      if (!isClosing && !isDrowsy && earPts.length >= 6) {
-        const pupilX = (earPts[0].x + earPts[3].x) / 2;
-        const pupilY = (earPts[1].y + earPts[5].y) / 2;
-        ctx.beginPath();
-        ctx.arc(pupilX, pupilY, 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = "#3b82f6";
-        ctx.fill();
-      }
     };
 
-    drawEye(LEFT_EYE_FULL_CONTOUR, leftEyePts);
-    drawEye(RIGHT_EYE_FULL_CONTOUR, rightEyePts);
+    drawEye(LEFT_EYE_FULL_CONTOUR);
+    drawEye(RIGHT_EYE_FULL_CONTOUR);
 
     ctx.restore();
   }
@@ -624,29 +501,6 @@ class VisionEngine {
     ctx.moveTo(x, y + h - bLen); ctx.lineTo(x, y + h); ctx.lineTo(x + bLen, y + h);
     ctx.moveTo(x + w - bLen, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - bLen);
     ctx.stroke();
-
-    ctx.restore();
-  }
-
-  drawFaceLostNotice(width, height) {
-    const ctx = this.canvasCtx;
-    if (!ctx) return;
-    ctx.save();
-
-    ctx.fillStyle = "rgba(9, 14, 26, 0.6)";
-    ctx.fillRect(0, 0, width, height);
-
-    const cx = width / 2;
-    const cy = height / 2;
-
-    ctx.fillStyle = "#f59e0b";
-    ctx.font = "600 15px -apple-system, BlinkMacSystemFont, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("Unable to Assess — Face Not Detected", cx, cy);
-
-    ctx.font = "400 12px -apple-system, BlinkMacSystemFont, sans-serif";
-    ctx.fillStyle = "#94a3b8";
-    ctx.fillText("Please position your face directly in front of the camera", cx, cy + 24);
 
     ctx.restore();
   }
