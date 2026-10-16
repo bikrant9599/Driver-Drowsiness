@@ -1,32 +1,28 @@
 /* ==========================================================================
    APPLICATION CONTROLLER & ROUTER
+   Simplified 3-page architecture: Home, Live Monitoring, Session Summary
    ========================================================================== */
 
-import { ICONS, formatDuration } from "./utils.js";
+import { ICONS } from "./utils.js";
 import { appState } from "./state.js";
 import { visionEngine } from "./vision.js";
+import { openSettingsModal } from "./settings-modal.js";
 
-// Page modules
+// 3 Primary Pages
 import { renderHomePage } from "./pages/home.js";
-import { renderDashboardPage } from "./pages/dashboard.js";
 import { renderLivePage } from "./pages/live.js";
-import { renderReportsPage } from "./pages/reports.js";
-import { renderSettingsPage } from "./pages/settings.js";
+import { renderSummaryPage } from "./pages/summary.js";
 
 const PAGE_META = {
-  home: { title: "System Overview", subtitle: "AI Driver Drowsiness Detection System" },
-  dashboard: { title: "Safety Dashboard", subtitle: "Real-time Vehicle Biometrics & Telematics" },
-  live: { title: "Live Vision Console", subtitle: "Webcam Facial Mesh & Eye Aspect Ratio Tracking" },
-  reports: { title: "Session Reports", subtitle: "Driver Transit History & Incident Audit Logs" },
-  settings: { title: "System Settings", subtitle: "Biometric Sensitivity & Warning Preferences" }
+  home: { title: "Home", subtitle: "AI Driver Drowsiness Detection" },
+  live: { title: "Live Monitoring", subtitle: "Real-time attentiveness tracking" },
+  summary: { title: "Session Summary", subtitle: "Monitoring results & detection timestamps" }
 };
 
 class Application {
   constructor() {
     this.root = document.getElementById("app-root");
     this.contentMount = null;
-    this.currentViewContainer = null;
-    this.clockInterval = null;
     this.sessionTimerInterval = null;
   }
 
@@ -41,10 +37,10 @@ class Application {
     window.addEventListener("hashchange", () => this.handleRouting());
     this.handleRouting();
 
-    // Start Master Clock & Session Timer
-    this.startTimers();
+    // Session Timer
+    this.startSessionTimer();
 
-    // Subscribe to State Changes for Header & Badges
+    // Subscribe to State Changes
     appState.subscribe((changeType) => this.onStateChange(changeType));
   }
 
@@ -57,8 +53,8 @@ class Application {
             ${ICONS.logo}
           </div>
           <div class="brand-title">
-            <span class="brand-name">VigilDrive <span class="ai-tag">AI</span></span>
-            <span class="brand-sub">Driver Drowsiness System</span>
+            <span class="brand-name">AI Driver Drowsiness</span>
+            <span class="brand-sub">Safety Telematics</span>
           </div>
         </div>
 
@@ -67,41 +63,24 @@ class Application {
             ${ICONS.home}
             <span>Home</span>
           </a>
-          <a href="#dashboard" class="nav-item" data-route="dashboard">
-            ${ICONS.dashboard}
-            <span>Dashboard</span>
-            <span class="nav-badge" id="nav-alert-badge" style="display: none;">0</span>
-          </a>
           <a href="#live" class="nav-item" data-route="live">
             ${ICONS.eye}
             <span>Live Monitoring</span>
-            <span class="badge badge-safe" style="font-size: 0.65rem; padding: 2px 6px;" id="nav-live-pill">LIVE</span>
           </a>
-          <a href="#reports" class="nav-item" data-route="reports">
+          <a href="#summary" class="nav-item" data-route="summary">
             ${ICONS.reports}
-            <span>Reports</span>
-          </a>
-          <a href="#settings" class="nav-item" data-route="settings">
-            ${ICONS.settings}
-            <span>Settings</span>
+            <span>Session Summary</span>
           </a>
         </nav>
 
         <div class="sidebar-footer">
-          <div class="safety-telemetry-pill">
-            <div class="telemetry-indicator">
-              <span class="badge-dot" id="sidebar-status-dot" style="background: var(--status-safe);"></span>
-              <span id="sidebar-status-text">System Active</span>
-            </div>
-            <span class="badge badge-info" id="sidebar-mode-badge" style="font-size: 0.65rem;">
-              ${appState.monitoringMode === 'sample' ? 'Sample' : 'Hardware'}
-            </span>
-          </div>
-
-          <div style="display: flex; gap: 0.5rem;">
-            <button class="btn btn-secondary btn-sm" style="flex: 1; font-size: 0.75rem;" id="sidebar-theme-toggle">
+          <div class="sidebar-footer-row">
+            <button class="btn btn-secondary btn-sm" id="sidebar-settings-btn" title="System Settings">
+              ${ICONS.settings}
+              <span>Settings</span>
+            </button>
+            <button class="btn btn-secondary btn-icon" id="sidebar-theme-toggle" title="Toggle Dark/Light Mode">
               ${appState.theme === 'dark' ? ICONS.sun : ICONS.moon}
-              <span id="theme-btn-label">${appState.theme === 'dark' ? 'Light Theme' : 'Dark Theme'}</span>
             </button>
           </div>
         </div>
@@ -118,17 +97,16 @@ class Application {
               ${ICONS.menu}
             </button>
             <div class="page-breadcrumb">
-              <h1 class="page-title" id="page-header-title">System Overview</h1>
-              <span class="page-subtitle" id="page-header-subtitle">AI Driver Drowsiness Detection System</span>
+              <h1 class="page-title" id="page-header-title">Home</h1>
+              <span class="page-subtitle" id="page-header-subtitle">AI Driver Drowsiness Detection</span>
             </div>
           </div>
 
           <div class="header-right">
-            <div class="telematics-clock" id="telematics-clock" title="Automotive Master UTC Time">
-              ${ICONS.gauge}
-              <span id="clock-display" class="tabular-nums">00:00:00</span>
-            </div>
-
+            <button class="btn btn-secondary btn-sm" id="header-settings-btn" title="Settings">
+              ${ICONS.settings}
+              <span>Settings</span>
+            </button>
             <button class="btn btn-secondary btn-icon" id="header-theme-toggle" title="Toggle Theme">
               ${appState.theme === 'dark' ? ICONS.sun : ICONS.moon}
             </button>
@@ -138,34 +116,26 @@ class Application {
         <main class="main-content" id="main-content-mount"></main>
       </div>
 
-      <!-- Mobile Bottom Navigation Bar -->
+      <!-- Mobile Bottom Navigation Bar: Only 3 primary items -->
       <nav class="mobile-bottom-nav">
         <a href="#home" class="mobile-nav-link" data-route="home">
           ${ICONS.home}
           <span>Home</span>
         </a>
-        <a href="#dashboard" class="mobile-nav-link" data-route="dashboard">
-          ${ICONS.dashboard}
-          <span>Dashboard</span>
-        </a>
         <a href="#live" class="mobile-nav-link" data-route="live">
           ${ICONS.eye}
           <span>Live</span>
         </a>
-        <a href="#reports" class="mobile-nav-link" data-route="reports">
+        <a href="#summary" class="mobile-nav-link" data-route="summary">
           ${ICONS.reports}
-          <span>Reports</span>
-        </a>
-        <a href="#settings" class="mobile-nav-link" data-route="settings">
-          ${ICONS.settings}
-          <span>Settings</span>
+          <span>Summary</span>
         </a>
       </nav>
     `;
 
     this.contentMount = document.getElementById("main-content-mount");
 
-    // Bind Theme Toggles
+    // Theme Toggle Handler
     const toggleTheme = () => {
       const nextTheme = appState.theme === "dark" ? "light" : "dark";
       appState.setTheme(nextTheme);
@@ -174,6 +144,10 @@ class Application {
 
     document.getElementById("sidebar-theme-toggle").addEventListener("click", toggleTheme);
     document.getElementById("header-theme-toggle").addEventListener("click", toggleTheme);
+
+    // Settings Modal Triggers
+    document.getElementById("sidebar-settings-btn").addEventListener("click", () => openSettingsModal());
+    document.getElementById("header-settings-btn").addEventListener("click", () => openSettingsModal());
 
     // Mobile Drawer Handlers
     const sidebar = document.getElementById("app-sidebar");
@@ -188,7 +162,6 @@ class Application {
     mobileBtn.addEventListener("click", toggleMobileMenu);
     backdrop.addEventListener("click", toggleMobileMenu);
 
-    // Close mobile menu on item click
     sidebar.querySelectorAll(".nav-item").forEach((link) => {
       link.addEventListener("click", () => {
         sidebar.classList.remove("mobile-open");
@@ -203,16 +176,21 @@ class Application {
     if (headerBtn) headerBtn.innerHTML = isDark ? ICONS.sun : ICONS.moon;
 
     const sidebarBtn = document.getElementById("sidebar-theme-toggle");
-    if (sidebarBtn) {
-      sidebarBtn.innerHTML = `
-        ${isDark ? ICONS.sun : ICONS.moon}
-        <span id="theme-btn-label">${isDark ? 'Light Theme' : 'Dark Theme'}</span>
-      `;
-    }
+    if (sidebarBtn) sidebarBtn.innerHTML = isDark ? ICONS.sun : ICONS.moon;
   }
 
-  async handleRouting() {
-    let route = window.location.hash.replace("#", "").toLowerCase() || "home";
+  handleRouting() {
+    let rawRoute = window.location.hash.replace("#", "").toLowerCase() || "home";
+
+    // Normalize legacy or alias routes to the 3 primary pages
+    let route = rawRoute;
+    if (route === "dashboard") route = "home";
+    if (route === "reports") route = "summary";
+    if (route === "settings") {
+      openSettingsModal();
+      route = "home";
+    }
+
     if (!PAGE_META[route]) {
       route = "home";
     }
@@ -230,8 +208,10 @@ class Application {
 
     // Update Header Titles
     const meta = PAGE_META[route];
-    document.getElementById("page-header-title").textContent = meta.title;
-    document.getElementById("page-header-subtitle").textContent = meta.subtitle;
+    const headerTitle = document.getElementById("page-header-title");
+    const headerSubtitle = document.getElementById("page-header-subtitle");
+    if (headerTitle) headerTitle.textContent = meta.title;
+    if (headerSubtitle) headerSubtitle.textContent = meta.subtitle;
 
     // Stop active camera if navigating away from live page while session stopped
     if (route !== "live" && !appState.isMonitoring) {
@@ -245,14 +225,10 @@ class Application {
     let viewNode = null;
     if (route === "home") {
       viewNode = renderHomePage();
-    } else if (route === "dashboard") {
-      viewNode = renderDashboardPage();
     } else if (route === "live") {
       viewNode = renderLivePage();
-    } else if (route === "reports") {
-      viewNode = renderReportsPage();
-    } else if (route === "settings") {
-      viewNode = await renderSettingsPage();
+    } else if (route === "summary") {
+      viewNode = renderSummaryPage();
     }
 
     if (viewNode) {
@@ -260,19 +236,7 @@ class Application {
     }
   }
 
-  startTimers() {
-    // 1. Clock Display (every second)
-    const clockEl = document.getElementById("clock-display");
-    const updateClock = () => {
-      if (clockEl) {
-        const now = new Date();
-        clockEl.textContent = now.toLocaleTimeString("en-US", { hour12: false });
-      }
-    };
-    updateClock();
-    this.clockInterval = setInterval(updateClock, 1000);
-
-    // 2. Monitoring Session Duration Timer
+  startSessionTimer() {
     this.sessionTimerInterval = setInterval(() => {
       if (appState.isMonitoring && !appState.isPaused) {
         appState.sessionDurationSec++;
@@ -281,47 +245,6 @@ class Application {
   }
 
   onStateChange(changeType) {
-    // Update sidebar badges and status indicator
-    const dot = document.getElementById("sidebar-status-dot");
-    const text = document.getElementById("sidebar-status-text");
-    const modeBadge = document.getElementById("sidebar-mode-badge");
-
-    if (dot && text) {
-      if (appState.driverStatus === "ALERT") {
-        dot.style.background = "var(--status-danger)";
-        dot.style.boxShadow = "0 0 8px var(--status-danger)";
-        text.textContent = "ALERT!";
-      } else if (appState.driverStatus === "POSSIBLE DROWSINESS") {
-        dot.style.background = "var(--status-warn)";
-        dot.style.boxShadow = "0 0 8px var(--status-warn)";
-        text.textContent = "Caution Warning";
-      } else if (appState.driverStatus === "FACE NOT DETECTED") {
-        dot.style.background = "var(--status-warn)";
-        dot.style.boxShadow = "none";
-        text.textContent = "Face Not Detected";
-      } else if (appState.driverStatus === "CAMERA ERROR") {
-        dot.style.background = "var(--status-danger)";
-        dot.style.boxShadow = "none";
-        text.textContent = "Camera Error";
-      } else if (appState.isPaused) {
-        dot.style.background = "var(--status-warn)";
-        dot.style.boxShadow = "none";
-        text.textContent = "Monitoring Paused";
-      } else if (appState.isMonitoring) {
-        dot.style.background = "var(--status-safe)";
-        dot.style.boxShadow = "0 0 8px var(--status-safe)";
-        text.textContent = "Monitoring Active";
-      } else {
-        dot.style.background = "var(--text-muted)";
-        dot.style.boxShadow = "none";
-        text.textContent = "System Standby";
-      }
-    }
-
-    if (modeBadge) {
-      modeBadge.textContent = appState.monitoringMode === "sample" ? "Sample" : "Hardware";
-    }
-
     if (changeType === "page") {
       this.handleRouting();
     }
@@ -333,7 +256,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const app = new Application();
   app.init();
 
-  // Safely finalize and save running session on unexpected window close, refresh, or backgrounding
+  // Safely finalize running session on unexpected window close or refresh
   const handleUnexpectedTermination = () => {
     if (appState.isMonitoring && !appState.sessionSaved) {
       appState.stopSession();

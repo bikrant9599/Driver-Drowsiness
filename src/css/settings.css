@@ -1,120 +1,68 @@
 /* ==========================================================================
-   PAGE: SETTINGS
+   SETTINGS MODAL STYLES
+   Compact secondary modal menu for essential options
    ========================================================================== */
 
-.settings-container {
-  display: flex;
-  flex-direction: column;
-  gap: 1.75rem;
-  max-width: 960px;
-}
-
-.settings-section-card {
+.settings-modal-dialog {
+  max-width: 480px;
+  width: 90%;
   background-color: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-medium);
   border-radius: var(--radius-lg);
-  padding: 1.75rem;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-lg);
 }
 
-.settings-section-card .card-header {
-  border-bottom: 1px solid var(--border-subtle);
-  padding-bottom: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.settings-grid-rows {
+.settings-modal-body {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1.25rem;
+  padding: 1.5rem;
 }
 
-.setting-row {
+.compact-setting-item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1.5rem;
-}
-
-@media (max-width: 640px) {
-  .setting-row {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-}
-
-.setting-info {
-  flex: 1;
-}
-
-.setting-title {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 0.25rem;
-  display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 0.5rem;
 }
 
-.setting-desc {
-  font-size: 0.8rem;
+.compact-setting-item .setting-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  cursor: pointer;
+}
+
+.compact-setting-item .setting-label strong {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.compact-setting-item .setting-label span {
+  font-size: 0.75rem;
   color: var(--text-secondary);
-  line-height: 1.4;
 }
 
-.setting-control {
-  min-width: 220px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.75rem;
+/* Range input styling */
+.form-range {
+  flex: 1;
+  height: 6px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-full);
+  outline: none;
+  cursor: pointer;
 }
 
-.range-with-val {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  width: 100%;
-}
-
-.range-val-badge {
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--accent-cyan);
-  background: var(--bg-primary);
-  border: 1px solid var(--border-subtle);
-  padding: 0.25rem 0.5rem;
-  border-radius: var(--radius-sm);
-  min-width: 52px;
-  text-align: center;
-}
-
-/* Privacy Assurance Card */
-.privacy-badge-card {
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(6, 182, 212, 0.05));
-  border: 1px solid var(--status-safe-border);
+.form-select {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-medium);
   border-radius: var(--radius-md);
-  padding: 1.25rem;
-  display: flex;
-  align-items: center;
-  gap: 1rem;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color var(--transition-fast);
 }
 
-.privacy-badge-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: var(--radius-md);
-  background: var(--status-safe-bg);
-  color: var(--status-safe);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.privacy-badge-icon svg {
-  width: 24px;
-  height: 24px;
+.form-select:focus {
+  border-color: var(--accent-primary);
 }

@@ -1,56 +1,116 @@
 /* ==========================================================================
-   PAGE: LIVE MONITORING
+   PAGE 2: LIVE MONITORING STYLES
+   Prioritizes large camera feed, minimal status badges, visible warning
    ========================================================================== */
 
-.live-layout {
-  display: grid;
-  grid-template-columns: 1fr 340px;
-  gap: 1.5rem;
+.live-clean-container {
+  display: flex;
+  justify-content: center;
+  width: 100%;
 }
 
-@media (max-width: 1100px) {
-  .live-layout {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Video Stage Card */
-.video-stage-card {
-  position: relative;
-  background-color: #020617;
-  border: 1px solid var(--border-medium);
+.live-card {
+  width: 100%;
+  max-width: 960px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-md);
   display: flex;
   flex-direction: column;
 }
 
-.video-stage-header {
+/* Status Header Bar */
+.live-status-bar {
   padding: 0.875rem 1.25rem;
-  background-color: var(--bg-surface);
+  background-color: var(--bg-secondary);
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  z-index: 10;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
-.mode-badge-wrapper {
+.live-status-group {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
-.video-container {
+.live-status-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-full);
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Green: Alert / Normal */
+.status-pill-green {
+  background-color: var(--status-safe-bg);
+  border-color: var(--status-safe-border);
+  color: var(--status-safe);
+}
+.badge-dot-green {
+  background-color: var(--status-safe);
+  box-shadow: 0 0 6px var(--status-safe);
+}
+
+/* Amber: Possible Drowsiness */
+.status-pill-amber {
+  background-color: var(--status-warn-bg);
+  border-color: var(--status-warn-border);
+  color: var(--status-warn);
+}
+.badge-dot-amber {
+  background-color: var(--status-warn);
+  box-shadow: 0 0 6px var(--status-warn);
+}
+
+/* Gray: Unable to Assess / Standby */
+.status-pill-gray {
+  background-color: var(--status-neutral-bg);
+  border-color: var(--status-neutral-border);
+  color: var(--text-secondary);
+}
+.badge-dot-gray {
+  background-color: var(--text-muted);
+}
+
+.live-duration-val {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Video Viewport */
+.live-video-viewport {
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
-  background: #020617;
+  background-color: #020617;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
 }
 
 #webcam-video {
@@ -58,7 +118,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transform: scaleX(-1); /* Mirror camera for natural driver view */
+  transform: scaleX(-1); /* Mirror camera for natural view */
 }
 
 #overlay-canvas {
@@ -71,279 +131,58 @@
   z-index: 5;
 }
 
-/* Red flashing alert border for Drowsiness */
-.video-container.alert-active {
-  box-shadow: inset 0 0 0 6px var(--status-danger), inset 0 0 50px rgba(239, 68, 68, 0.6);
-  animation: borderAlertFlash 0.6s infinite alternate;
-}
-
-@keyframes borderAlertFlash {
-  0% { box-shadow: inset 0 0 0 6px var(--status-danger), inset 0 0 30px rgba(239, 68, 68, 0.4); }
-  100% { box-shadow: inset 0 0 0 10px #ff0000, inset 0 0 80px rgba(255, 0, 0, 0.9); }
-}
-
-/* HUD Overlay Elements */
-.hud-corner {
-  position: absolute;
-  z-index: 8;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  pointer-events: none;
-}
-
-.hud-top-left {
-  top: 1rem;
-  left: 1rem;
-}
-
-.hud-top-right {
-  top: 1rem;
-  right: 1rem;
-  align-items: flex-end;
-}
-
-.hud-bottom-left {
-  bottom: 1rem;
-  left: 1rem;
-}
-
-.hud-bottom-right {
-  bottom: 1rem;
-  right: 1rem;
-}
-
-.hud-pill {
-  background: rgba(7, 13, 25, 0.82);
-  backdrop-filter: blur(6px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: var(--radius-md);
-  padding: 0.4rem 0.75rem;
-  color: #ffffff;
-  font-size: 0.75rem;
-  font-family: var(--font-mono);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-}
-
-/* Prominent Warning Banner inside Video */
-.hud-alert-banner {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  background: rgba(220, 38, 38, 0.92);
-  backdrop-filter: blur(10px);
-  border: 2px solid #ffffff;
-  border-radius: var(--radius-lg);
-  padding: 1.5rem 2.5rem;
-  text-align: center;
-  color: #ffffff;
-  z-index: 20;
-  display: none;
-  animation: alertPulse 0.5s ease-in-out infinite alternate;
-  box-shadow: 0 0 40px rgba(239, 68, 68, 0.8);
-}
-
-.hud-alert-banner.active {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.hud-alert-banner h2 {
-  font-size: 1.75rem;
-  font-weight: 800;
-  color: #ffffff;
-  letter-spacing: 0.05em;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
-}
-
-.hud-alert-banner p {
-  color: #fecaca;
-  font-size: 0.95rem;
-  font-weight: 600;
-}
-
-.hud-alert-banner.caution {
-  background: rgba(217, 119, 6, 0.94);
-  box-shadow: 0 0 35px rgba(245, 158, 11, 0.8);
-  border-color: #fde68a;
-}
-
-.hud-alert-banner.caution h2 {
-  color: #ffffff;
-}
-
-.hud-alert-banner.caution p {
-  color: #fef3c7;
-}
-
-.hud-alert-type-badge {
-  display: inline-block;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  padding: 0.25rem 0.75rem;
-  border-radius: var(--radius-full);
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-/* Audio Blocked Banner */
-.hud-audio-warning {
-  position: absolute;
-  top: 1rem;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(217, 119, 6, 0.92);
-  backdrop-filter: blur(8px);
-  color: #ffffff;
-  padding: 0.45rem 1rem;
-  border-radius: var(--radius-md);
-  font-size: 0.75rem;
-  font-weight: 600;
-  z-index: 12;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  animation: alertPulse 1.2s infinite alternate;
-}
-
-.hud-audio-warning:hover {
-  background: rgba(245, 158, 11, 1);
+/* Active Warning Flashing Border */
+.live-video-viewport.alert-active {
+  box-shadow: inset 0 0 0 6px var(--status-danger);
+  animation: alertPulse 0.5s infinite alternate;
 }
 
 @keyframes alertPulse {
-  0% { transform: translate(-50%, -50%) scale(0.98); }
-  100% { transform: translate(-50%, -50%) scale(1.03); }
+  0% { box-shadow: inset 0 0 0 6px var(--status-danger); }
+  100% { box-shadow: inset 0 0 0 10px #b91c1c; }
 }
 
-/* Video Stage Footer Controls */
-.video-stage-footer {
-  padding: 1rem 1.25rem;
-  background-color: var(--bg-surface);
-  border-top: 1px solid var(--border-subtle);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 1rem;
-}
-
-.control-btn-group {
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-}
-
-/* Sidebar Telemetry & Live Gauges */
-.live-telemetry-sidebar {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-/* Eye Closure Stopwatch Card */
-.closure-timer-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-}
-
-.timer-large {
-  font-size: 3rem;
-  font-weight: 800;
-  font-family: var(--font-mono);
-  color: var(--text-primary);
-  line-height: 1;
-  margin: 0.75rem 0;
-  transition: color var(--transition-fast);
-}
-
-.timer-large.warn {
-  color: var(--status-warn);
-}
-.timer-large.danger {
-  color: var(--status-danger);
-}
-
-.closure-progress-bar {
-  width: 100%;
-  height: 10px;
-  background-color: var(--bg-primary);
-  border-radius: 5px;
-  overflow: hidden;
-  border: 1px solid var(--border-subtle);
-  margin-top: 0.5rem;
-}
-
-.closure-progress-fill {
-  height: 100%;
-  width: 0%;
-  background: var(--status-safe);
-  border-radius: 5px;
-  transition: width 0.1s linear, background-color 0.2s ease;
-}
-
-.closure-progress-fill.warn {
-  background: var(--status-warn);
-}
-.closure-progress-fill.danger {
-  background: var(--status-danger);
-}
-
-/* Live EAR Chart Box */
-.ear-chart-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  padding: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-#ear-live-canvas {
-  width: 100%;
-  height: 120px;
-  background: var(--bg-primary);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-subtle);
-}
-
-/* Audio Alarm Status Card */
-.alarm-status-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  padding: 1.25rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-/* Camera Standby & Error Overlays */
-.camera-standby-overlay,
-.camera-error-overlay {
+/* Visible Warning Banner */
+.live-alert-banner {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: radial-gradient(circle at center, rgba(13, 22, 41, 0.95), rgba(2, 6, 23, 0.98));
+  top: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: #ef4444;
+  color: #ffffff;
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--radius-md);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  z-index: 20;
+  max-width: 90%;
+}
+
+.live-alert-banner .alert-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.live-alert-banner .alert-title {
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  line-height: 1.2;
+}
+
+.live-alert-banner .alert-subtitle {
+  font-size: 0.75rem;
+  opacity: 0.95;
+  font-weight: 500;
+}
+
+/* Standby & Error Overlays */
+.live-video-overlay {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(9, 14, 26, 0.92);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -353,97 +192,75 @@
   z-index: 15;
 }
 
-.standby-icon-orb,
-.error-icon-orb {
-  width: 72px;
-  height: 72px;
+.standby-icon-circle, .error-icon-circle {
+  width: 60px;
+  height: 60px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-medium);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 1.25rem;
-  font-size: 2rem;
+  color: var(--accent-primary);
+  margin-bottom: 1rem;
 }
 
-.standby-icon-orb {
-  background: rgba(37, 99, 235, 0.15);
-  border: 1px solid var(--border-medium);
-  color: var(--accent-cyan);
-  box-shadow: 0 0 25px rgba(6, 182, 212, 0.25);
+.standby-icon-circle svg {
+  width: 28px;
+  height: 28px;
 }
 
-.standby-icon-orb svg {
-  width: 34px;
-  height: 34px;
+.error-icon-circle {
+  font-size: 1.75rem;
+  color: var(--status-warn);
 }
 
-.error-icon-orb {
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid var(--status-danger-border);
-  color: var(--status-danger);
-  box-shadow: 0 0 25px rgba(239, 68, 68, 0.35);
-}
-
-.camera-standby-overlay h3,
-.camera-error-overlay h3 {
-  font-size: 1.35rem;
+.standby-title, .error-title {
+  font-size: 1.25rem;
   font-weight: 700;
   color: var(--text-primary);
   margin-bottom: 0.5rem;
 }
 
-.camera-standby-overlay p,
-.camera-error-overlay p {
-  font-size: 0.9rem;
+.standby-desc, .error-desc {
+  font-size: 0.875rem;
   color: var(--text-secondary);
   max-width: 440px;
   line-height: 1.5;
-  margin-bottom: 1.25rem;
+  margin-bottom: 1.5rem;
 }
 
-/* Camera Initializing State Overlay */
-.camera-initializing-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: radial-gradient(circle at center, rgba(13, 22, 41, 0.96), rgba(2, 6, 23, 0.98));
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 2rem;
-  z-index: 16;
-}
-
-/* In-Cabin Lighting & Face Visibility Notice */
-.hud-lighting-notice {
-  position: absolute;
-  top: 1rem;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(180, 83, 9, 0.92);
-  backdrop-filter: blur(8px);
-  color: #ffffff;
-  padding: 0.45rem 1.15rem;
-  border-radius: var(--radius-md);
-  font-size: 0.775rem;
-  font-weight: 600;
-  z-index: 12;
+/* Bottom Controls Bar */
+.live-controls-bar {
+  padding: 1rem 1.25rem;
+  background-color: var(--bg-secondary);
+  border-top: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(251, 191, 36, 0.4);
-  max-width: 90%;
-  text-align: center;
-  animation: noticeFloat 2s ease-in-out infinite alternate;
+  justify-content: space-between;
+  gap: 1rem;
 }
 
-@keyframes noticeFloat {
-  0% { transform: translate(-50%, 0); }
-  100% { transform: translate(-50%, 2px); }
+.controls-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
+@media (max-width: 640px) {
+  .live-status-bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .live-controls-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .controls-left {
+    width: 100%;
+    flex-direction: column;
+  }
+  .controls-left .btn {
+    width: 100%;
+  }
+}
