@@ -1,12 +1,12 @@
 /* ==========================================================================
    DRIVER DROWSINESS DETECTION - APPLICATION CONTROLLER
-   Clean, modern, professional computer-vision dashboard
+   Full-screen modern computer-vision dashboard with multi-sound selection
    ========================================================================== */
 
 import { ICONS, formatDurationText, formatTimerDisplay, formatDateTime } from "./utils.js";
 import { appState } from "./state.js";
 import { visionEngine } from "./vision.js";
-import { soundManager } from "./audio.js";
+import { soundManager, SOUND_PRESETS } from "./audio.js";
 
 class SingleScreenApp {
   constructor() {
@@ -39,6 +39,11 @@ class SingleScreenApp {
         }
       }
     }, 1000);
+
+    // Fullscreen change listener
+    document.addEventListener("fullscreenchange", () => {
+      this.updateFullscreenButton();
+    });
   }
 
   onStateChange() {
@@ -54,6 +59,7 @@ class SingleScreenApp {
 
   render() {
     const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+    const isFs = Boolean(document.fullscreenElement);
     const currentView = appState.currentView;
 
     this.root.innerHTML = `
@@ -64,6 +70,13 @@ class SingleScreenApp {
             <span class="system-pill">AI Vision Assist</span>
           </div>
           <div class="top-bar-actions">
+            <!-- Fullscreen API Toggle -->
+            <button class="icon-btn" id="fullscreen-toggle-btn" aria-label="Toggle Fullscreen Mode" title="Toggle Fullscreen">
+              ${isFs ? ICONS.minimize : ICONS.maximize}
+              <span>${isFs ? 'Exit Full Screen' : 'Full Screen'}</span>
+            </button>
+
+            <!-- History Button (when not already on history page and not actively monitoring) -->
             ${
               currentView !== "history" && !appState.isMonitoring
                 ? `<button class="icon-btn" id="header-history-btn" aria-label="View Session History" title="View History">
@@ -72,6 +85,8 @@ class SingleScreenApp {
                    </button>`
                 : ""
             }
+
+            <!-- Theme Toggle Button -->
             <button class="icon-btn" id="theme-toggle-btn" aria-label="Toggle Dark and Light Mode" title="Toggle Theme">
               ${isDark ? ICONS.sun : ICONS.moon}
             </button>
@@ -83,9 +98,9 @@ class SingleScreenApp {
           ${this.getMainCardContent()}
         </main>
 
-        <!-- Safety & Privacy Notice -->
+        <!-- Safety & Privacy Notice Footer -->
         <footer class="app-safety-notice">
-          Safety Notice: Video is processed locally in real time and is never uploaded or recorded. This assistive system is a prototype and does not replace safe driving or adequate rest.
+          Safety Notice: Video is processed locally in real time and is never uploaded or recorded. This assistive tool is a prototype and does not replace safe driving decisions or adequate rest.
         </footer>
 
         <!-- Confirmation Modal for Delete History -->
@@ -111,49 +126,95 @@ class SingleScreenApp {
   }
 
   /* -------------------------------------------------------------------------
-     1. Main Screen View (Ready State)
+     1. Main Screen View (Full-Width Dashboard Grid with Multi-Sound Selection)
      ------------------------------------------------------------------------- */
   renderMainView() {
     const isMuted = soundManager.isMuted;
     const vol = soundManager.volume;
+    const selectedSoundId = soundManager.selectedSound;
 
-    return `
-      <h1 class="app-title">Driver Drowsiness Detection</h1>
-      <p class="app-instruction">Real-time computer-vision monitoring for driver alertness and eye closure.</p>
-
-      <div class="start-wrapper">
-        <button class="btn btn-primary btn-large" id="start-monitoring-btn">
-          ${ICONS.play} START MONITORING
-        </button>
-      </div>
-
-      <!-- Quick Audio & Device Controls Card -->
-      <div class="dashboard-controls-card">
-        <div class="control-group">
-          <span class="control-label">Alert Sound</span>
-          <button class="control-btn" id="mute-toggle-btn" title="${isMuted ? 'Unmute alert sound' : 'Mute alert sound'}">
-            ${isMuted ? ICONS.volumeMute : ICONS.volumeUp}
-            <span>${isMuted ? 'Muted' : 'Sound Active'}</span>
-          </button>
-          <button class="control-btn" id="test-sound-btn" title="Test automotive warning chime">
-            ${ICONS.bell}
-            <span>Test Alert Sound</span>
+    const presetsHtml = SOUND_PRESETS.map((preset) => {
+      const isSelected = preset.id === selectedSoundId;
+      return `
+        <div class="sound-preset-card ${isSelected ? 'selected' : ''}" data-sound-id="${preset.id}">
+          <div class="preset-info-wrap">
+            <div class="preset-radio">
+              <div class="preset-radio-inner"></div>
+            </div>
+            <div class="preset-text">
+              <span class="preset-name">${preset.name}</span>
+              <span class="preset-desc">${preset.desc}</span>
+            </div>
+          </div>
+          <button class="preview-btn" data-preview-id="${preset.id}" title="Preview ${preset.name}">
+            ${ICONS.play}
+            <span>Preview</span>
           </button>
         </div>
+      `;
+    }).join("");
 
-        <div class="control-group">
-          <span class="control-label">Volume</span>
-          <div class="volume-slider-wrap">
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value="${vol}"
-              class="volume-slider"
-              id="volume-slider"
-              aria-label="Alert Volume Slider"
-            />
-            <span class="volume-val" id="volume-val-display">${vol}%</span>
+    return `
+      <div class="home-dashboard-grid">
+        <!-- Left Hero Column -->
+        <div class="home-hero-col">
+          <div class="hero-status-pill">
+            <span class="hero-status-dot"></span>
+            <span>Camera System Ready</span>
+          </div>
+
+          <h1 class="app-title">Driver Drowsiness Detection</h1>
+          <p class="app-instruction">
+            Real-time computer-vision monitoring for driver alertness and prolonged eye closure. Keep your eyes on the road.
+          </p>
+
+          <div class="start-wrapper">
+            <button class="btn btn-primary btn-large" id="start-monitoring-btn">
+              ${ICONS.play} START MONITORING
+            </button>
+          </div>
+        </div>
+
+        <!-- Right Sound Settings Panel Column -->
+        <div class="home-audio-col">
+          <div class="sound-settings-panel">
+            <div class="panel-header">
+              <span class="panel-title">
+                ${ICONS.bell}
+                <span>Alert Sound Selection</span>
+              </span>
+              <button class="control-btn" id="mute-toggle-btn" title="${isMuted ? 'Unmute alert sound' : 'Mute alert sound'}">
+                ${isMuted ? ICONS.volumeMute : ICONS.volumeUp}
+                <span>${isMuted ? 'Muted' : 'Sound Active'}</span>
+              </button>
+            </div>
+
+            <!-- List of 5 Distinct Selectable Sounds -->
+            <div class="sound-presets-list" id="sound-presets-list">
+              ${presetsHtml}
+            </div>
+
+            <!-- Global Volume Slider -->
+            <div class="sound-controls-row">
+              <div class="volume-slider-wrap">
+                <span class="control-label">Volume</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value="${vol}"
+                  class="volume-slider"
+                  id="volume-slider"
+                  aria-label="Alert Sound Volume"
+                />
+                <span class="volume-val" id="volume-val-display">${vol}%</span>
+              </div>
+
+              <button class="control-btn" id="test-sound-btn" title="Test currently selected warning alert sound">
+                ${ICONS.bell}
+                <span>Test Current Sound</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -161,61 +222,65 @@ class SingleScreenApp {
   }
 
   /* -------------------------------------------------------------------------
-     2. Live Monitoring View
+     2. Live Monitoring View (Full-Screen Comfortable Layout)
      ------------------------------------------------------------------------- */
   renderMonitoringView() {
     const statusClass = this.getStatusClass();
     const isMuted = soundManager.isMuted;
     const clockStr = formatTimerDisplay(appState.sessionDurationSec);
+    const activePreset = SOUND_PRESETS.find((p) => p.id === soundManager.selectedSound) || SOUND_PRESETS[0];
 
     return `
-      <h1 class="app-title">Driver Drowsiness Detection</h1>
-      <p class="app-instruction">Monitor your eyes to detect signs of drowsiness.</p>
+      <div class="monitoring-container">
+        <h1 class="app-title">Driver Drowsiness Detection</h1>
+        <p class="app-instruction">Monitor your eyes to detect signs of drowsiness in real time.</p>
 
-      <!-- One Clear Status Banner -->
-      <div class="status-banner ${statusClass}" id="main-status-banner">
-        <span class="status-indicator-dot"></span>
-        <span class="status-text" id="status-text">${appState.statusText || 'Starting camera...'}</span>
-      </div>
-
-      <!-- Camera Preview Wrapper -->
-      <div class="camera-preview-wrapper ${appState.activeWarning ? 'alert-flashing' : ''}" id="camera-preview-wrapper">
-        <video id="webcam-video" autoplay playsinline muted></video>
-        <canvas id="overlay-canvas"></canvas>
-        <div class="camera-unavailable-overlay" id="camera-unavailable-overlay" style="display: ${appState.status === 'CAMERA_UNAVAILABLE' ? 'flex' : 'none'};">
-          <p><strong>Camera Unavailable</strong></p>
-          <p class="error-detail">${appState.cameraError || 'Please allow camera permissions and ensure no other application is using your webcam.'}</p>
-        </div>
-      </div>
-
-      <!-- Monitoring Telemetrics & Sound Bar -->
-      <div class="monitoring-bar">
-        <div class="session-live-clock">
-          <span>Duration:</span>
-          <span class="clock-val" id="live-clock-val">${clockStr}</span>
+        <!-- One Clear Large Status Banner -->
+        <div class="status-banner ${statusClass}" id="main-status-banner">
+          <span class="status-indicator-dot"></span>
+          <span class="status-text" id="status-text">${appState.statusText || 'Starting camera...'}</span>
         </div>
 
-        <div class="control-group">
-          <button class="control-btn" id="live-mute-toggle-btn" title="${isMuted ? 'Unmute alert sound' : 'Mute alert sound'}">
-            ${isMuted ? ICONS.volumeMute : ICONS.volumeUp}
-            <span>${isMuted ? 'Muted' : 'Sound Active'}</span>
-          </button>
-          <button class="control-btn" id="live-test-sound-btn" title="Test warning chime">
-            ${ICONS.bell}
-            <span>Test Sound</span>
-          </button>
+        <!-- Large Comfortable Camera Preview Wrapper -->
+        <div class="camera-preview-wrapper ${appState.activeWarning ? 'alert-flashing' : ''}" id="camera-preview-wrapper">
+          <video id="webcam-video" autoplay playsinline muted></video>
+          <canvas id="overlay-canvas"></canvas>
+          <div class="camera-unavailable-overlay" id="camera-unavailable-overlay" style="display: ${appState.status === 'CAMERA_UNAVAILABLE' ? 'flex' : 'none'};">
+            <p><strong>Camera Unavailable</strong></p>
+            <p class="error-detail">${appState.cameraError || 'Please allow camera permissions and ensure no other application is using your webcam.'}</p>
+          </div>
         </div>
-      </div>
 
-      <!-- One STOP MONITORING Button -->
-      <button class="btn btn-danger btn-large" id="stop-monitoring-btn">
-        ${ICONS.stop} STOP MONITORING
-      </button>
+        <!-- Monitoring Telemetrics & Audio Bar -->
+        <div class="monitoring-bar">
+          <div class="session-live-clock">
+            <span>Duration:</span>
+            <span class="clock-val" id="live-clock-val">${clockStr}</span>
+          </div>
+
+          <div class="monitoring-sound-meta">
+            <span class="current-sound-badge">Sound: ${activePreset.name}</span>
+            <button class="control-btn" id="live-mute-toggle-btn" title="${isMuted ? 'Unmute alert sound' : 'Mute alert sound'}">
+              ${isMuted ? ICONS.volumeMute : ICONS.volumeUp}
+              <span>${isMuted ? 'Muted' : 'Active'}</span>
+            </button>
+            <button class="control-btn" id="live-test-sound-btn" title="Test warning chime">
+              ${ICONS.bell}
+              <span>Test Sound</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Large STOP MONITORING Button -->
+        <button class="btn btn-danger btn-large" id="stop-monitoring-btn">
+          ${ICONS.stop} STOP MONITORING
+        </button>
+      </div>
     `;
   }
 
   /* -------------------------------------------------------------------------
-     3. Session Summary View (Centered, Symmetrical, Balanced)
+     3. Session Summary View (Wide, Symmetrical & Balanced)
      ------------------------------------------------------------------------- */
   renderSummaryView() {
     const session = appState.lastSession || {
@@ -240,12 +305,12 @@ class SingleScreenApp {
           <span>${session.resultLabel}</span>
         </div>
 
-        <!-- Symmetrical 3-Column Metrics Grid -->
+        <!-- 3-Column Metrics Grid -->
         <div class="summary-metrics-grid">
           <div class="summary-card-cell">
             <span class="cell-label">Session Duration</span>
             <span class="cell-value">${formatDurationText(session.durationSeconds)}</span>
-            <span class="cell-subtext">Active monitoring</span>
+            <span class="cell-subtext">Active monitoring time</span>
           </div>
 
           <div class="summary-card-cell">
@@ -253,17 +318,17 @@ class SingleScreenApp {
             <span class="cell-value" style="color: ${isWarn ? '#ef4444' : '#10b981'};">
               ${session.drowsinessEventsCount}
             </span>
-            <span class="cell-subtext">${isWarn ? 'Prolonged eye closure detected' : 'Alert status maintained'}</span>
+            <span class="cell-subtext">${isWarn ? 'Prolonged eye closure detected' : 'Alert driver status maintained'}</span>
           </div>
 
           <div class="summary-card-cell">
             <span class="cell-label">Date & Time</span>
-            <span class="cell-value" style="font-size: 1.15rem;">${formatDateTime(session.timestamp)}</span>
+            <span class="cell-value" style="font-size: 1.25rem;">${formatDateTime(session.timestamp)}</span>
             <span class="cell-subtext">Actual completed session</span>
           </div>
         </div>
 
-        <!-- Summary Action Buttons -->
+        <!-- Action Buttons -->
         <div class="summary-actions-row">
           <button class="btn btn-primary btn-large" id="start-new-session-btn">
             ${ICONS.play} START NEW SESSION
@@ -277,7 +342,7 @@ class SingleScreenApp {
   }
 
   /* -------------------------------------------------------------------------
-     4. Session History View
+     4. Session History View (Full-Width Responsive List)
      ------------------------------------------------------------------------- */
   renderHistoryView() {
     const history = appState.getHistory();
@@ -288,7 +353,7 @@ class SingleScreenApp {
         <div class="history-empty-card">
           ${ICONS.history}
           <div class="empty-title">No Previous Sessions</div>
-          <p class="empty-desc">Completed monitoring sessions will automatically be saved and displayed here.</p>
+          <p class="empty-desc">Completed monitoring sessions will automatically be recorded and displayed here.</p>
         </div>
       `;
     } else {
@@ -374,8 +439,45 @@ class SingleScreenApp {
     return "status-noface-grey";
   }
 
+  toggleFullscreen() {
+    try {
+      if (!document.fullscreenElement) {
+        if (document.documentElement.requestFullscreen) {
+          document.documentElement.requestFullscreen().catch((err) => {
+            console.warn("Fullscreen request error:", err);
+          });
+        }
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen().catch((err) => {
+            console.warn("Exit fullscreen error:", err);
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Fullscreen toggle error:", e);
+    }
+  }
+
+  updateFullscreenButton() {
+    const isFs = Boolean(document.fullscreenElement);
+    const fsBtn = document.getElementById("fullscreen-toggle-btn");
+    if (fsBtn) {
+      fsBtn.innerHTML = `
+        ${isFs ? ICONS.minimize : ICONS.maximize}
+        <span>${isFs ? 'Exit Full Screen' : 'Full Screen'}</span>
+      `;
+    }
+  }
+
   bindEvents() {
-    // Theme toggle
+    // Fullscreen API toggle button
+    const fsBtn = document.getElementById("fullscreen-toggle-btn");
+    if (fsBtn) {
+      fsBtn.onclick = () => this.toggleFullscreen();
+    }
+
+    // Theme toggle button
     const themeBtn = document.getElementById("theme-toggle-btn");
     if (themeBtn) {
       themeBtn.onclick = () => {
@@ -465,6 +567,32 @@ class SingleScreenApp {
       };
     }
 
+    // Sound Preset Selection Cards
+    const presetCards = document.querySelectorAll(".sound-preset-card");
+    presetCards.forEach((card) => {
+      card.onclick = (e) => {
+        // If clicking the preview button, don't trigger selection toggle
+        if (e.target.closest(".preview-btn")) return;
+        const soundId = card.getAttribute("data-sound-id");
+        if (soundId) {
+          soundManager.selectSound(soundId);
+          this.render();
+        }
+      };
+    });
+
+    // Sound Preview Buttons
+    const previewButtons = document.querySelectorAll(".preview-btn");
+    previewButtons.forEach((btn) => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const soundId = btn.getAttribute("data-preview-id");
+        if (soundId) {
+          soundManager.previewSound(soundId);
+        }
+      };
+    });
+
     // Audio Mute toggle (Main view)
     const muteBtn = document.getElementById("mute-toggle-btn");
     if (muteBtn) {
@@ -481,7 +609,7 @@ class SingleScreenApp {
         const isMuted = soundManager.toggleMute();
         liveMuteBtn.innerHTML = `
           ${isMuted ? ICONS.volumeMute : ICONS.volumeUp}
-          <span>${isMuted ? 'Muted' : 'Sound Active'}</span>
+          <span>${isMuted ? 'Muted' : 'Active'}</span>
         `;
       };
     }
