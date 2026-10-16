@@ -105,14 +105,10 @@ class SingleScreenApp {
         <div class="camera-preview-wrapper ${appState.activeWarning ? 'alert-flashing' : ''}" id="camera-preview-wrapper">
           <video id="webcam-video" autoplay playsinline muted></video>
           <canvas id="overlay-canvas"></canvas>
-          ${
-            appState.status === "CAMERA_UNAVAILABLE"
-              ? `<div class="camera-unavailable-overlay">
-                   <p><strong>Camera Unavailable</strong></p>
-                   <p class="error-detail">${appState.cameraError || 'Please allow camera permissions and ensure no other application is using your webcam.'}</p>
-                 </div>`
-              : ""
-          }
+          <div class="camera-unavailable-overlay" id="camera-unavailable-overlay" style="display: ${appState.status === 'CAMERA_UNAVAILABLE' ? 'flex' : 'none'};">
+            <p><strong>Camera Unavailable</strong></p>
+            <p class="error-detail">${appState.cameraError || 'Please allow camera permissions and ensure no other application is using your webcam.'}</p>
+          </div>
         </div>
 
         <!-- One STOP MONITORING Button -->
@@ -200,6 +196,7 @@ class SingleScreenApp {
     const statusBanner = document.getElementById("main-status-banner");
     const statusText = document.getElementById("status-text");
     const previewWrapper = document.getElementById("camera-preview-wrapper");
+    const unavailOverlay = document.getElementById("camera-unavailable-overlay");
 
     if (statusBanner && statusText) {
       statusBanner.className = `status-banner ${this.getStatusClass()}`;
@@ -213,11 +210,19 @@ class SingleScreenApp {
         previewWrapper.classList.remove("alert-flashing");
       }
     }
+
+    if (unavailOverlay) {
+      unavailOverlay.style.display = appState.status === "CAMERA_UNAVAILABLE" ? "flex" : "none";
+      const errDetail = unavailOverlay.querySelector(".error-detail");
+      if (errDetail && appState.cameraError) {
+        errDetail.textContent = appState.cameraError;
+      }
+    }
   }
 }
 
-// Bootstrap on DOM ready
-document.addEventListener("DOMContentLoaded", () => {
+// Bootstrap single-screen application
+function bootstrapApp() {
   const app = new SingleScreenApp();
   app.init();
 
@@ -228,4 +233,10 @@ document.addEventListener("DOMContentLoaded", () => {
       appState.stopSession();
     }
   });
-});
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", bootstrapApp);
+} else {
+  bootstrapApp();
+}

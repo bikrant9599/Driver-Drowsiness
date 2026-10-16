@@ -153,7 +153,10 @@ class VisionEngine {
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       this.isStartingCamera = false;
-      const errorMsg = "Webcam is not supported in this browser.";
+      const isSecure = window.isSecureContext || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+      const errorMsg = isSecure
+        ? "Webcam is not supported or disabled in this browser."
+        : "Webcam requires http://localhost:5173/ (or HTTPS) to allow camera access. Please open http://localhost:5173/";
       appState.setStatus("CAMERA_UNAVAILABLE", errorMsg);
       return { success: false, error: errorMsg };
     }
