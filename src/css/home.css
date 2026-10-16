@@ -11,7 +11,7 @@
 }
 
 .home-card {
-  max-width: 680px;
+  max-width: 640px;
   width: 100%;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-subtle);
@@ -22,31 +22,11 @@
   flex-direction: column;
 }
 
-.home-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  background-color: var(--accent-soft);
-  color: var(--accent-primary);
-  border: 1px solid rgba(37, 99, 235, 0.25);
-  padding: 0.3rem 0.75rem;
-  border-radius: var(--radius-full);
-  font-size: 0.75rem;
-  font-weight: 600;
-  margin-bottom: 1.25rem;
-  align-self: flex-start;
-}
-
-.home-badge svg {
-  width: 14px;
-  height: 14px;
-}
-
 .home-title {
   font-size: 2rem;
   font-weight: 700;
   color: var(--text-primary);
-  line-height: 1.2;
+  line-height: 1.25;
   margin-bottom: 1rem;
 }
 
@@ -66,7 +46,7 @@
   font-size: 1.05rem;
 }
 
-.home-note-card {
+.home-privacy-notice {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
@@ -74,40 +54,21 @@
   display: flex;
   gap: 0.875rem;
   align-items: flex-start;
-  margin-bottom: 1.5rem;
-}
-
-.home-note-card .note-icon {
-  color: var(--accent-primary);
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-.home-note-card .note-icon svg {
-  width: 1.15rem;
-  height: 1.15rem;
-}
-
-.home-note-card .note-text {
   font-size: 0.85rem;
   line-height: 1.5;
   color: var(--text-secondary);
 }
 
-.home-note-card .note-text strong {
+.home-privacy-notice svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: var(--accent-primary);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.home-privacy-notice strong {
   color: var(--text-primary);
-}
-
-.home-disclaimer {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  line-height: 1.5;
-  border-top: 1px solid var(--border-subtle);
-  padding-top: 1rem;
-}
-
-.home-disclaimer strong {
-  color: var(--text-secondary);
 }
 
 @media (max-width: 640px) {

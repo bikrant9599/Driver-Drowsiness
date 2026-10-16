@@ -1,6 +1,7 @@
 /* ==========================================================================
    COMPUTER VISION & EYE-CLOSURE DETECTION ENGINE
    MediaPipe Face Landmarker with real-time Eye Aspect Ratio (EAR) tracking
+   Detection statuses: "Normal", "Possible Drowsiness", "Unable to Assess"
    ========================================================================== */
 
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
@@ -65,30 +66,10 @@ class VisionEngine {
     // Duration trackers
     this.consecutiveClosedSeconds = 0.0;
     this.lastFaceSeenTime = performance.now();
-    this.faceLossGraceSec = 0.6; // 600ms tolerance for momentary head movement
+    this.faceLossGraceSec = 0.6; // 600ms tolerance for momentary movement
 
     // Incident latch to record ONE event per sustained closure
     this.closureIncidentActive = false;
-
-    // Device list
-    this.videoDevices = [];
-  }
-
-  /**
-   * Enumerate connected video input devices
-   */
-  async enumerateCameras() {
-    try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-        return [];
-      }
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      this.videoDevices = devices.filter((d) => d.kind === "videoinput");
-      return this.videoDevices;
-    } catch (err) {
-      console.warn("Could not enumerate camera devices:", err);
-      return [];
-    }
   }
 
   /**
@@ -117,7 +98,6 @@ class VisionEngine {
           numFaces: 1
         });
       } catch (gpuErr) {
-        console.warn("GPU delegate unavailable, attempting CPU delegate:", gpuErr);
         this.faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
           baseOptions: {
             modelAssetPath:
@@ -134,7 +114,7 @@ class VisionEngine {
       this.isInitializingLandmarker = false;
       return true;
     } catch (err) {
-      console.warn("MediaPipe FaceLandmarker init failed, will try FaceMesh fallback:", err);
+      console.warn("MediaPipe FaceLandmarker init failed, using FaceMesh fallback:", err);
       this.isLandmarkerReady = false;
       this.isInitializingLandmarker = false;
       return false;
@@ -174,7 +154,7 @@ class VisionEngine {
    */
   async startCamera(videoEl, canvasEl) {
     if (this.isStartingCamera) {
-      return { success: false, error: "Camera initialization already in progress." };
+      return { success: false, error: "Camera initialization in progress." };
     }
     this.isStartingCamera = true;
 
@@ -195,7 +175,7 @@ class VisionEngine {
     // Check mediaDevices support
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       this.isStartingCamera = false;
-      const errDetail = "Camera API is not supported in this browser environment.";
+      const errDetail = "Camera is not supported in this browser.";
       appState.cameraConnected = false;
       appState.driverStatus = "Unable to Assess";
       appState.eyeState = "Unable to Assess";
@@ -214,10 +194,6 @@ class VisionEngine {
         audio: false
       };
 
-      if (appState.settings.preferredCameraId) {
-        constraints.video.deviceId = { exact: appState.settings.preferredCameraId };
-      }
-
       this.stream = await navigator.mediaDevices.getUserMedia(constraints);
 
       if (this.videoElement) {
@@ -231,7 +207,7 @@ class VisionEngine {
 
       appState.cameraConnected = true;
       appState.cameraError = null;
-      appState.driverStatus = "Unable to Assess"; // Will turn "Alert" once face and eyes are detected
+      appState.driverStatus = "Unable to Assess"; // Becomes Normal once face & eyes are recognized
       appState.eyeState = "Unable to Assess";
 
       this.initFaceLandmarker().then((ready) => {
@@ -251,15 +227,15 @@ class VisionEngine {
 
       let errorMsg = "Could not access camera.";
       if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-        errorMsg = "Camera access was denied. Please allow camera permissions in your browser.";
+        errorMsg = "Camera access denied. Please allow camera permissions in your browser.";
       } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
         errorMsg = "No camera found. Please connect a webcam.";
       } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
-        errorMsg = "Camera is in use by another application.";
+        errorMsg = "Camera is already in use by another application.";
       }
 
       appState.cameraError = errorMsg;
-      showToast("Camera Notice", errorMsg, "danger");
+      showToast("Camera Error", errorMsg, "danger");
       return { success: false, error: errorMsg };
     } finally {
       this.isStartingCamera = false;
@@ -308,14 +284,6 @@ class VisionEngine {
       const delta = Math.min(0.2, (timestamp - this.lastFrameTime) / 1000);
       this.lastFrameTime = timestamp;
 
-      // Handle Paused state gracefully
-      if (appState.isPaused) {
-        soundManager.stopDrowsinessAlert();
-        this.drawPausedOverlay();
-        this.animFrameId = requestAnimationFrame(loop);
-        return;
-      }
-
       await this.processLiveCameraFrame(timestamp, delta);
       this.animFrameId = requestAnimationFrame(loop);
     };
@@ -345,7 +313,7 @@ class VisionEngine {
           return;
         }
       } catch (err) {
-        console.warn("FaceLandmarker detect error:", err);
+        console.warn("FaceLandmarker detection error:", err);
       }
     }
 
@@ -400,10 +368,10 @@ class VisionEngine {
     this.smoothedEar = alphaEar * avgEAR + (1 - alphaEar) * this.smoothedEar;
     appState.currentEar = Number(this.smoothedEar.toFixed(2));
 
-    // Core Drowsiness Logic
+    // Core Drowsiness Logic: Normal, Possible Drowsiness, or Unable to Assess
     this.evaluateDrowsinessLogic(this.smoothedEar, blinkScore, delta);
 
-    // Render subtle visual indicators on canvas
+    // Render subtle visual overlay
     this.drawSubtleOverlay(pts, leftEyePts, rightEyePts, width, height);
   }
 
@@ -452,13 +420,13 @@ class VisionEngine {
       return;
     }
 
-    // Face is genuinely absent from camera frame
+    // Face is absent from camera frame
     appState.faceDetected = false;
     appState.eyeState = "Unable to Assess";
     appState.driverStatus = "Unable to Assess";
     appState.activeWarningType = "";
 
-    // Reset continuous closure timer so lost face does not trigger false drowsiness
+    // Reset continuous closure timer
     this.consecutiveClosedSeconds = 0.0;
     this.closureIncidentActive = false;
     appState.closureSeconds = 0.0;
@@ -469,7 +437,7 @@ class VisionEngine {
 
   /**
    * Core Drowsiness Evaluation Logic
-   * Evaluates eye closure using EAR and blendshape scores
+   * Status options strictly: "Normal", "Possible Drowsiness", "Unable to Assess"
    */
   evaluateDrowsinessLogic(earVal, blendshapeBlinkScore, delta) {
     const earThreshold = appState.settings.earThreshold;
@@ -484,9 +452,9 @@ class VisionEngine {
       appState.closureSeconds = Number(this.consecutiveClosedSeconds.toFixed(1));
 
       if (this.consecutiveClosedSeconds >= alertThreshold) {
-        // Prolonged Eye Closure detected! Active warning and audible alarm
+        // Prolonged Eye Closure detected: trigger warning and audible alarm
         appState.driverStatus = "Possible Drowsiness";
-        appState.eyeState = "Eyes Closed";
+        appState.eyeState = "Possible Drowsiness";
         appState.activeWarningType = "PROLONGED EYE CLOSURE";
         soundManager.startDrowsinessAlert(appState.activeWarningType);
 
@@ -498,25 +466,25 @@ class VisionEngine {
           });
         }
       } else if (this.consecutiveClosedSeconds >= 0.35) {
-        // Possible drowsiness / eyes starting to close longer than a blink
+        // Eyes closing longer than standard blink
         appState.driverStatus = "Possible Drowsiness";
-        appState.eyeState = "Eyes Closed";
+        appState.eyeState = "Possible Drowsiness";
         appState.activeWarningType = "";
         soundManager.stopDrowsinessAlert();
       } else {
-        // Momentary blink
-        appState.driverStatus = "Alert";
-        appState.eyeState = "Eyes Closed";
+        // Standard rapid blink
+        appState.driverStatus = "Normal";
+        appState.eyeState = "Normal";
         appState.activeWarningType = "";
         soundManager.stopDrowsinessAlert();
       }
     } else {
-      // Eyes are open and face is detected
+      // Eyes are open and face is detected: Normal operation
       this.consecutiveClosedSeconds = 0.0;
       appState.closureSeconds = 0.0;
       this.closureIncidentActive = false;
-      appState.driverStatus = "Alert";
-      appState.eyeState = "Eyes Detected";
+      appState.driverStatus = "Normal";
+      appState.eyeState = "Normal";
       appState.activeWarningType = "";
       soundManager.stopDrowsinessAlert();
     }
@@ -571,13 +539,11 @@ class VisionEngine {
     appState.currentEar = Number(this.smoothedEar.toFixed(2));
 
     this.evaluateDrowsinessLogic(this.smoothedEar, null, delta);
-
-    // Draw simple frame outline
     this.drawSimpleReticle(cx - boxW / 2, cy - boxH / 2, boxW, boxH);
   }
 
   // =========================================================================
-  // Clean, Subtle Visual Overlays on Canvas
+  // Visual Overlays on Canvas
   // =========================================================================
 
   drawSubtleOverlay(pts, leftEyePts, rightEyePts, width, height) {
@@ -627,7 +593,6 @@ class VisionEngine {
       ctx.lineWidth = 1.75;
       ctx.stroke();
 
-      // Pupil center indicator when alert
       if (!isClosing && !isDrowsy && earPts.length >= 6) {
         const pupilX = (earPts[0].x + earPts[3].x) / 2;
         const pupilY = (earPts[1].y + earPts[5].y) / 2;
@@ -653,7 +618,6 @@ class VisionEngine {
     ctx.lineWidth = 2.5;
     ctx.strokeStyle = color;
 
-    // Corner brackets only
     ctx.beginPath();
     ctx.moveTo(x, y + bLen); ctx.lineTo(x, y); ctx.lineTo(x + bLen, y);
     ctx.moveTo(x + w - bLen, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + bLen);
@@ -669,7 +633,7 @@ class VisionEngine {
     if (!ctx) return;
     ctx.save();
 
-    ctx.fillStyle = "rgba(7, 13, 25, 0.65)";
+    ctx.fillStyle = "rgba(9, 14, 26, 0.6)";
     ctx.fillRect(0, 0, width, height);
 
     const cx = width / 2;
@@ -682,32 +646,7 @@ class VisionEngine {
 
     ctx.font = "400 12px -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.fillStyle = "#94a3b8";
-    ctx.fillText("Please position face clearly in the camera view", cx, cy + 24);
-
-    ctx.restore();
-  }
-
-  drawPausedOverlay() {
-    const ctx = this.canvasCtx;
-    if (!ctx || !this.canvasElement) return;
-    const width = this.canvasElement.width;
-    const height = this.canvasElement.height;
-
-    ctx.save();
-    ctx.fillStyle = "rgba(7, 13, 25, 0.75)";
-    ctx.fillRect(0, 0, width, height);
-
-    const cx = width / 2;
-    const cy = height / 2;
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "700 18px -apple-system, BlinkMacSystemFont, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("Monitoring Paused", cx, cy);
-
-    ctx.font = "400 13px -apple-system, BlinkMacSystemFont, sans-serif";
-    ctx.fillStyle = "#94a3b8";
-    ctx.fillText("Click Resume to continue", cx, cy + 26);
+    ctx.fillText("Please position your face directly in front of the camera", cx, cy + 24);
 
     ctx.restore();
   }

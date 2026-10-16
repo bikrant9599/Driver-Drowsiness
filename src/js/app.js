@@ -1,12 +1,11 @@
 /* ==========================================================================
    APPLICATION CONTROLLER & ROUTER
-   Simplified 3-page architecture: Home, Live Monitoring, Session Summary
+   Simple 3-option navigation: Home, Live Monitoring, Session Summary
    ========================================================================== */
 
 import { ICONS } from "./utils.js";
 import { appState } from "./state.js";
 import { visionEngine } from "./vision.js";
-import { openSettingsModal } from "./settings-modal.js";
 
 // 3 Primary Pages
 import { renderHomePage } from "./pages/home.js";
@@ -15,8 +14,8 @@ import { renderSummaryPage } from "./pages/summary.js";
 
 const PAGE_META = {
   home: { title: "Home", subtitle: "AI Driver Drowsiness Detection" },
-  live: { title: "Live Monitoring", subtitle: "Real-time attentiveness tracking" },
-  summary: { title: "Session Summary", subtitle: "Monitoring results & detection timestamps" }
+  live: { title: "Live Monitoring", subtitle: "Real-time webcam attentiveness tracking" },
+  summary: { title: "Session Summary", subtitle: "Monitoring duration and event timestamps" }
 };
 
 class Application {
@@ -33,11 +32,11 @@ class Application {
     // Render Shell Layout
     this.renderLayout();
 
-    // Bind Global Router
+    // Bind Global Hash Router
     window.addEventListener("hashchange", () => this.handleRouting());
     this.handleRouting();
 
-    // Session Timer
+    // Session Duration Timer
     this.startSessionTimer();
 
     // Subscribe to State Changes
@@ -74,15 +73,10 @@ class Application {
         </nav>
 
         <div class="sidebar-footer">
-          <div class="sidebar-footer-row">
-            <button class="btn btn-secondary btn-sm" id="sidebar-settings-btn" title="System Settings">
-              ${ICONS.settings}
-              <span>Settings</span>
-            </button>
-            <button class="btn btn-secondary btn-icon" id="sidebar-theme-toggle" title="Toggle Dark/Light Mode">
-              ${appState.theme === 'dark' ? ICONS.sun : ICONS.moon}
-            </button>
-          </div>
+          <button class="btn btn-secondary btn-sm" id="sidebar-theme-toggle" style="width: 100%;" title="Toggle Theme">
+            ${appState.theme === 'dark' ? ICONS.sun : ICONS.moon}
+            <span id="sidebar-theme-label">${appState.theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+          </button>
         </div>
       </aside>
 
@@ -103,10 +97,6 @@ class Application {
           </div>
 
           <div class="header-right">
-            <button class="btn btn-secondary btn-sm" id="header-settings-btn" title="Settings">
-              ${ICONS.settings}
-              <span>Settings</span>
-            </button>
             <button class="btn btn-secondary btn-icon" id="header-theme-toggle" title="Toggle Theme">
               ${appState.theme === 'dark' ? ICONS.sun : ICONS.moon}
             </button>
@@ -145,10 +135,6 @@ class Application {
     document.getElementById("sidebar-theme-toggle").addEventListener("click", toggleTheme);
     document.getElementById("header-theme-toggle").addEventListener("click", toggleTheme);
 
-    // Settings Modal Triggers
-    document.getElementById("sidebar-settings-btn").addEventListener("click", () => openSettingsModal());
-    document.getElementById("header-settings-btn").addEventListener("click", () => openSettingsModal());
-
     // Mobile Drawer Handlers
     const sidebar = document.getElementById("app-sidebar");
     const backdrop = document.getElementById("mobile-backdrop");
@@ -176,20 +162,21 @@ class Application {
     if (headerBtn) headerBtn.innerHTML = isDark ? ICONS.sun : ICONS.moon;
 
     const sidebarBtn = document.getElementById("sidebar-theme-toggle");
-    if (sidebarBtn) sidebarBtn.innerHTML = isDark ? ICONS.sun : ICONS.moon;
+    if (sidebarBtn) {
+      sidebarBtn.innerHTML = `
+        ${isDark ? ICONS.sun : ICONS.moon}
+        <span id="sidebar-theme-label">${isDark ? 'Light Mode' : 'Dark Mode'}</span>
+      `;
+    }
   }
 
   handleRouting() {
     let rawRoute = window.location.hash.replace("#", "").toLowerCase() || "home";
 
-    // Normalize legacy or alias routes to the 3 primary pages
     let route = rawRoute;
     if (route === "dashboard") route = "home";
     if (route === "reports") route = "summary";
-    if (route === "settings") {
-      openSettingsModal();
-      route = "home";
-    }
+    if (route === "settings") route = "home";
 
     if (!PAGE_META[route]) {
       route = "home";
@@ -238,7 +225,7 @@ class Application {
 
   startSessionTimer() {
     this.sessionTimerInterval = setInterval(() => {
-      if (appState.isMonitoring && !appState.isPaused) {
+      if (appState.isMonitoring) {
         appState.sessionDurationSec++;
       }
     }, 1000);
@@ -256,7 +243,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const app = new Application();
   app.init();
 
-  // Safely finalize running session on unexpected window close or refresh
   const handleUnexpectedTermination = () => {
     if (appState.isMonitoring && !appState.sessionSaved) {
       appState.stopSession();

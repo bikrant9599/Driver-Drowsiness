@@ -1,9 +1,11 @@
 /* ==========================================================================
    PAGE 3: SESSION SUMMARY
-   Clean, honest summary of monitoring results with event timestamps
+   Strictly essential: Actual monitoring duration, actual number of possible
+   drowsiness events, event timestamps (only when real events recorded),
+   and one "Start New Session" button. No repeated or duplicate data.
    ========================================================================== */
 
-import { ICONS, formatDuration, formatDateTime, showConfirmModal } from "../utils.js";
+import { ICONS, formatDuration } from "../utils.js";
 import { appState } from "../state.js";
 
 export function renderSummaryPage() {
@@ -13,8 +15,8 @@ export function renderSummaryPage() {
   const allSessions = appState.sessions || [];
   const currentSession = appState.lastCompletedSession || allSessions[0] || null;
 
+  // When no session exists
   if (!currentSession && allSessions.length === 0) {
-    // Empty state when no monitoring has taken place yet
     container.innerHTML = `
       <div class="summary-card empty-card">
         <div class="empty-icon-circle">
@@ -22,15 +24,15 @@ export function renderSummaryPage() {
         </div>
         <h2 class="empty-title">No monitoring session yet.</h2>
         <p class="empty-desc">
-          Complete a live monitoring session to see total duration, drowsiness events, and timestamps here.
+          Start a monitoring session to view actual duration and drowsiness events here.
         </p>
-        <button class="btn btn-primary btn-lg" id="summary-start-btn">
+        <button class="btn btn-primary btn-lg" id="summary-new-session-btn">
           ${ICONS.play} Start Monitoring
         </button>
       </div>
     `;
 
-    const startBtn = container.querySelector("#summary-start-btn");
+    const startBtn = container.querySelector("#summary-new-session-btn");
     if (startBtn) {
       startBtn.onclick = () => {
         appState.setPage("live");
@@ -42,24 +44,17 @@ export function renderSummaryPage() {
   const durationStr = formatDuration(currentSession ? currentSession.durationSeconds : 0);
   const events = (currentSession && Array.isArray(currentSession.events)) ? currentSession.events : [];
   const warningCount = currentSession ? (currentSession.warningEventsCount || events.length) : 0;
-  const sessionTimeStr = currentSession ? formatDateTime(currentSession.startTime) : "";
 
   container.innerHTML = `
     <div class="summary-card">
       <div class="summary-header">
-        <div>
-          <h1 class="summary-title">Session Summary</h1>
-          <div class="summary-subtitle">Session recorded on ${sessionTimeStr}</div>
-        </div>
-        <button class="btn btn-primary btn-lg" id="summary-new-session-btn">
-          ${ICONS.play} Start New Session
-        </button>
+        <h1 class="summary-title">Session Summary</h1>
       </div>
 
-      <!-- Core Metrics: Total Duration & Drowsiness Events -->
+      <!-- Actual Duration & Actual Event Count -->
       <div class="summary-metrics-grid">
         <div class="summary-metric-tile">
-          <div class="metric-label">Total Monitoring Duration</div>
+          <div class="metric-label">Actual Monitoring Duration</div>
           <div class="metric-val tabular-nums">${durationStr}</div>
         </div>
 
@@ -71,29 +66,18 @@ export function renderSummaryPage() {
         </div>
       </div>
 
-      <!-- Event Timestamps Section -->
-      <div class="summary-events-section">
-        <h2 class="section-title">Event Timestamps</h2>
-        ${
-          events.length === 0
-            ? `
-          <div class="no-events-banner">
-            <span class="no-events-icon">${ICONS.check}</span>
-            <div>
-              <strong>No Warnings Detected</strong>
-              <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 2px;">
-                The driver remained alert with no prolonged eye closures detected during this session.
-              </div>
-            </div>
-          </div>
-        `
-            : `
+      <!-- Event Timestamps (Only shown when real events have been recorded) -->
+      ${
+        events.length > 0
+          ? `
+        <div class="summary-events-section">
+          <h2 class="section-title">Event Timestamps</h2>
           <div class="events-table-wrapper">
             <table class="events-table">
               <thead>
                 <tr>
                   <th>Timestamp</th>
-                  <th>Detection Event</th>
+                  <th>Event</th>
                   <th>Duration</th>
                 </tr>
               </thead>
@@ -116,83 +100,30 @@ export function renderSummaryPage() {
               </tbody>
             </table>
           </div>
-        `
-        }
-      </div>
-
-      <!-- Small Session History Section -->
-      ${
-        allSessions.length > 0
-          ? `
-        <div class="summary-history-section">
-          <div class="history-header">
-            <h2 class="section-title">Session History</h2>
-            <button class="btn btn-secondary btn-sm" id="summary-clear-history-btn">
-              ${ICONS.trash} Clear History
-            </button>
-          </div>
-
-          <div class="history-table-wrapper">
-            <table class="history-table">
-              <thead>
-                <tr>
-                  <th>Date &amp; Time</th>
-                  <th>Duration</th>
-                  <th>Drowsiness Events</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${allSessions
-                  .slice(0, 10)
-                  .map(
-                    (s) => `
-                  <tr>
-                    <td>${formatDateTime(s.startTime)}</td>
-                    <td class="tabular-nums">${formatDuration(s.durationSeconds)}</td>
-                    <td class="tabular-nums" style="color: ${s.warningEventsCount > 0 ? 'var(--status-danger)' : 'var(--status-safe)'}; font-weight: 600;">
-                      ${s.warningEventsCount || 0}
-                    </td>
-                  </tr>
-                `
-                  )
-                  .join("")}
-              </tbody>
-            </table>
-          </div>
         </div>
       `
-          : ""
+          : `
+        <div class="no-events-note">
+          <span class="note-check-icon">${ICONS.check}</span>
+          <span>No drowsiness events were recorded during this session.</span>
+        </div>
+      `
       }
+
+      <!-- One Start New Session Button -->
+      <div class="summary-action-wrapper">
+        <button class="btn btn-primary btn-lg" id="summary-new-session-btn">
+          ${ICONS.play} Start New Session
+        </button>
+      </div>
     </div>
   `;
 
-  // Start New Session button handler
+  // Start New Session handler
   const newSessionBtn = container.querySelector("#summary-new-session-btn");
   if (newSessionBtn) {
     newSessionBtn.onclick = () => {
       appState.setPage("live");
-    };
-  }
-
-  // Clear History button handler
-  const clearBtn = container.querySelector("#summary-clear-history-btn");
-  if (clearBtn) {
-    clearBtn.onclick = () => {
-      showConfirmModal({
-        title: "Clear Session History",
-        message: "Are you sure you want to clear your saved session history? This action cannot be undone.",
-        confirmText: "Clear All",
-        isDanger: true,
-        onConfirm: () => {
-          appState.clearSessions();
-          // Re-render summary page
-          const mount = document.getElementById("main-content-mount");
-          if (mount) {
-            mount.innerHTML = "";
-            mount.appendChild(renderSummaryPage());
-          }
-        }
-      });
     };
   }
 

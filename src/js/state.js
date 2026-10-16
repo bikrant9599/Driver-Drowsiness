@@ -1,21 +1,20 @@
 /* ==========================================================================
    STATE MANAGEMENT & LOCAL STORAGE PERSISTENCE
-   Simplified, reliable driver attentiveness telematics state
+   Simplified, reliable driver attentiveness state
    ========================================================================== */
 
 const STORAGE_KEYS = {
-  SETTINGS: "vigildrive_settings_v2",
-  SESSIONS: "vigildrive_sessions_v2",
-  THEME: "vigildrive_theme_v2"
+  SETTINGS: "vigildrive_settings_v3",
+  SESSIONS: "vigildrive_sessions_v3",
+  THEME: "vigildrive_theme_v3"
 };
 
 const DEFAULT_SETTINGS = {
-  alarmSound: "buzzer", // buzzer, chime, siren
+  alarmSound: "buzzer",
   volume: 85,
   alarmEnabled: true,
   earThreshold: 0.22,
-  drowsinessDurationSec: 2.0,
-  preferredCameraId: ""
+  drowsinessDurationSec: 2.0
 };
 
 class StateManager {
@@ -27,13 +26,12 @@ class StateManager {
 
     // Live Monitoring Telemetry State
     this.isMonitoring = false;
-    this.isPaused = false;
     this.sessionSaved = false;
     this.cameraConnected = false;
 
-    // Core Statuses: "Alert", "Possible Drowsiness", "Unable to Assess"
+    // Detection Status: "Normal", "Possible Drowsiness", "Unable to Assess"
     this.driverStatus = "Unable to Assess";
-    this.eyeState = "Unable to Assess"; // "Eyes Detected", "Eyes Closed", "Unable to Assess"
+    this.eyeState = "Unable to Assess";
     this.activeWarningType = "";
     this.cameraError = null;
     this.audioBlocked = false;
@@ -59,7 +57,6 @@ class StateManager {
       const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
       return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : { ...DEFAULT_SETTINGS };
     } catch (e) {
-      console.warn("Could not load settings, using defaults:", e);
       return { ...DEFAULT_SETTINGS };
     }
   }
@@ -68,24 +65,20 @@ class StateManager {
     this.settings = { ...this.settings, ...newSettings };
     try {
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(this.settings));
-    } catch (e) {
-      console.error("Failed to save settings:", e);
-    }
+    } catch (e) {}
     this.notify("settings");
   }
 
   loadSessions() {
     try {
-      // First try v2 storage, then migrate clean real sessions from v1 if present
       let saved = localStorage.getItem(STORAGE_KEYS.SESSIONS);
       if (!saved) {
-        saved = localStorage.getItem("vigildrive_sessions_v1");
+        saved = localStorage.getItem("vigildrive_sessions_v2");
       }
       if (!saved) return [];
       const parsed = JSON.parse(saved);
       if (!Array.isArray(parsed)) return [];
 
-      // Filter out any legacy sample/benchmark fake records
       return parsed
         .filter((item) => item && typeof item === "object" && !item.isSample && !String(item.id).startsWith("sess_sample_"))
         .map((s) => ({
@@ -98,14 +91,13 @@ class StateManager {
             ? s.events.map((ev, idx) => ({
                 id: ev.id || `ev_${idx}`,
                 timestamp: ev.timestamp || "00:00:00",
-                type: ev.type || "Possible Drowsiness",
+                type: "Possible Drowsiness",
                 typeLabel: ev.typeLabel || "Prolonged Eye Closure",
                 duration: typeof ev.duration === "number" ? `${ev.duration.toFixed(1)}s` : String(ev.duration || "0.0s")
               }))
             : []
         }));
     } catch (e) {
-      console.warn("Could not load sessions, starting empty:", e);
       return [];
     }
   }
@@ -113,9 +105,7 @@ class StateManager {
   saveSessions() {
     try {
       localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(this.sessions));
-    } catch (e) {
-      console.error("Failed to save sessions:", e);
-    }
+    } catch (e) {}
     this.notify("sessions");
   }
 
@@ -151,7 +141,6 @@ class StateManager {
 
   startSession() {
     this.isMonitoring = true;
-    this.isPaused = false;
     this.sessionSaved = false;
     this.driverStatus = "Unable to Assess";
     this.eyeState = "Unable to Assess";
@@ -164,20 +153,6 @@ class StateManager {
     this.closureSeconds = 0.0;
     this.currentSessionId = `sess_${Date.now()}`;
     this.notify("session_started");
-  }
-
-  pauseSession() {
-    if (!this.isMonitoring || this.isPaused) return;
-    this.isPaused = true;
-    this.driverStatus = "Unable to Assess";
-    this.notify("session_paused");
-  }
-
-  resumeSession() {
-    if (!this.isMonitoring || !this.isPaused) return;
-    this.isPaused = false;
-    this.driverStatus = this.faceDetected ? "Alert" : "Unable to Assess";
-    this.notify("session_resumed");
   }
 
   recordWarningEvent({ typeLabel = "Prolonged Eye Closure", duration = 0 }) {
@@ -215,7 +190,6 @@ class StateManager {
       events: [...this.currentSessionEvents]
     };
 
-    // Save session if monitoring lasted at least 1 second or if any warning occurred
     if (this.sessionDurationSec >= 1 || this.currentSessionEvents.length > 0) {
       this.sessions.unshift(completedSession);
       this.saveSessions();
@@ -223,7 +197,6 @@ class StateManager {
 
     this.lastCompletedSession = completedSession;
     this.isMonitoring = false;
-    this.isPaused = false;
     this.driverStatus = "Unable to Assess";
     this.eyeState = "Unable to Assess";
     this.activeWarningType = "";
