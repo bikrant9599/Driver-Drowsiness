@@ -172,6 +172,13 @@ class VisionEngine {
       };
 
       this.stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const videoTrack = this.stream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.onended = () => {
+          appState.setStatus("CAMERA_UNAVAILABLE", "Webcam was disconnected.");
+          soundManager.stopDrowsinessAlert();
+        };
+      }
 
       if (this.videoElement) {
         this.videoElement.srcObject = this.stream;
@@ -204,6 +211,7 @@ class VisionEngine {
       }
 
       appState.setStatus("CAMERA_UNAVAILABLE", errorMsg);
+      soundManager.stopDrowsinessAlert();
       return { success: false, error: errorMsg };
     } finally {
       this.isStartingCamera = false;

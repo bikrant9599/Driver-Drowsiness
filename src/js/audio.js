@@ -1,6 +1,6 @@
 /* ==========================================================================
    AUDIO SYNTHESIZER & AUDIBLE ALARM SYSTEM
-   Loud, urgent, rising-and-falling Emergency Siren synthesized via Web Audio API
+   Loud, intense, continuous rising-and-falling Emergency Siren (Web Audio API)
    ========================================================================== */
 
 export const ALERT_SOUND_NAME = "Emergency Siren";
@@ -9,8 +9,8 @@ class SoundManager {
   constructor() {
     this.audioCtx = null;
     this.isPlaying = false;
-    this.intervalId = null;
-    this.activeNodes = [];
+    this.currentSiren = null; // { carrier, lfo, lfoGain, filter, gainNode }
+    this.testTimeoutId = null;
 
     // Load persisted volume & mute
     const savedVol = localStorage.getItem("drowsiness_alarm_volume");
@@ -48,14 +48,18 @@ class SoundManager {
   getGainLevel(overrideMute = false) {
     if (!overrideMute && this.isMuted) return 0;
     const effectiveVol = overrideMute && this.volume <= 0 ? 50 : this.volume;
-    return Math.max(0.06, (effectiveVol / 100) * 0.50);
+    // Calibrated safe gain level to prevent speaker clipping or hearing fatigue
+    return Math.max(0.04, (effectiveVol / 100) * 0.42);
   }
 
   /**
-   * Emergency Siren: Loud, sharp, urgent alternating high-low rising-and-falling siren
-   * (Sawtooth wave with 680Hz <-> 1260Hz sweep cycle, distinct pause between repetitions)
+   * Start the continuous Emergency Siren
+   * Rapidly rising and falling pitch (440Hz <-> 1200Hz sweep) with zero pauses between cycles
    */
-  playEmergencySiren(overrideMute = false) {
+  startContinuousSiren(overrideMute = false) {
+    // Prevent multiple overlapping siren instances
+    if (this.currentSiren) return;
+
     const gainLevel = this.getGainLevel(overrideMute);
     if (gainLevel <= 0) return;
 
@@ -64,122 +68,166 @@ class SoundManager {
 
     try {
       const now = this.audioCtx.currentTime;
-      const osc = this.audioCtx.createOscillator();
-      const gain = this.audioCtx.createGain();
 
-      // Sharp, urgent emergency siren timbre using sawtooth waveform
-      osc.type = "sawtooth";
+      // 1. Primary Sound Generator (Carrier Oscillator)
+      // Sawtooth wave for sharp, urgent, attention-grabbing emergency harmonics
+      const carrier = this.audioCtx.createOscillator();
+      carrier.type = "sawtooth";
+      carrier.frequency.setValueAtTime(820, now);
 
-      // Rising-and-falling siren pitch cycle (low-to-high then high-to-low)
-      // Cycle 1: 680Hz -> 1220Hz -> 720Hz
-      // Cycle 2: 720Hz -> 1260Hz -> 680Hz
-      const t0 = now;
-      const t1 = now + 0.14; // first high peak
-      const t2 = now + 0.28; // mid trough
-      const t3 = now + 0.42; // second high peak
-      const t4 = now + 0.56; // low resolution
-      const totalDuration = 0.58;
+      // 2. Frequency Modulation LFO for seamless, relentless rising-and-falling wail
+      // Triangle wave modulates pitch smoothly from 440 Hz up to 1200 Hz
+      const lfo = this.audioCtx.createOscillator();
+      lfo.type = "triangle";
+      lfo.frequency.setValueAtTime(2.6, now); // 2.6 complete cycles per second for high-urgency cadence
 
-      osc.frequency.setValueAtTime(680, t0);
-      osc.frequency.linearRampToValueAtTime(1220, t1);
-      osc.frequency.linearRampToValueAtTime(720, t2);
-      osc.frequency.linearRampToValueAtTime(1260, t3);
-      osc.frequency.linearRampToValueAtTime(680, t4);
+      // Modulation depth: 820 Hz ± 380 Hz
+      const lfoGain = this.audioCtx.createGain();
+      lfoGain.gain.setValueAtTime(380, now);
 
-      // Volume envelope: smooth rapid attack, sustained siren wail, crisp release
-      gain.gain.setValueAtTime(0.0001, t0);
-      gain.gain.linearRampToValueAtTime(gainLevel, t0 + 0.02);
-      gain.gain.setValueAtTime(gainLevel, t4 - 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + totalDuration);
+      lfo.connect(lfoGain);
+      lfoGain.connect(carrier.frequency);
 
-      osc.connect(gain);
-      gain.connect(this.audioCtx.destination);
+      // 3. Acoustic Low-Pass Filter
+      // Filters harsh extreme high frequencies (above 2500Hz) to prevent clipping/distortion
+      const filter = this.audioCtx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(2500, now);
+      filter.Q.setValueAtTime(2.2, now); // Slight resonance for solid acoustic presence on speakers
 
-      osc.start(t0);
-      osc.stop(t0 + totalDuration);
+      // 4. Output Volume Gain Node with smooth rapid attack
+      const gainNode = this.audioCtx.createGain();
+      gainNode.gain.setValueAtTime(0.0001, now);
+      gainNode.gain.linearRampToValueAtTime(gainLevel, now + 0.02);
 
-      const nodeRef = { osc, gain };
-      this.activeNodes.push(nodeRef);
-      osc.onended = () => {
-        const idx = this.activeNodes.indexOf(nodeRef);
-        if (idx !== -1) this.activeNodes.splice(idx, 1);
-      };
+      // Connect nodes
+      carrier.connect(filter);
+      filter.connect(gainNode);
+      gainNode.connect(this.audioCtx.destination);
+
+      carrier.start(now);
+      lfo.start(now);
+
+      this.currentSiren = { carrier, lfo, lfoGain, filter, gainNode };
     } catch (e) {
-      console.warn("Emergency siren audio error:", e);
+      console.warn("Error starting continuous siren:", e);
+      this.currentSiren = null;
     }
   }
 
   /**
-   * Start repeating emergency siren when genuine drowsiness warning is confirmed
+   * Stop the continuous Emergency Siren immediately with clean smooth fade-out (no clicks/pops)
+   */
+  stopContinuousSiren() {
+    if (!this.currentSiren) return;
+
+    const { carrier, lfo, gainNode } = this.currentSiren;
+    this.currentSiren = null;
+
+    try {
+      if (this.audioCtx && this.audioCtx.state === "running") {
+        const now = this.audioCtx.currentTime;
+        gainNode.gain.cancelScheduledValues(now);
+        gainNode.gain.setValueAtTime(gainNode.gain.value, now);
+        gainNode.gain.linearRampToValueAtTime(0.0001, now + 0.025);
+
+        carrier.stop(now + 0.03);
+        lfo.stop(now + 0.03);
+
+        setTimeout(() => {
+          try {
+            carrier.disconnect();
+            lfo.disconnect();
+            gainNode.disconnect();
+          } catch (e) {}
+        }, 50);
+      } else {
+        carrier.stop();
+        lfo.stop();
+      }
+    } catch (e) {
+      console.warn("Error stopping continuous siren:", e);
+    }
+  }
+
+  /**
+   * Start repeating emergency siren when genuine drowsiness is confirmed
+   * Continues seamlessly without pauses while warning remains active
    * Prevents multiple sirens from playing simultaneously
    */
   startDrowsinessAlert() {
-    if (this.isPlaying) return; // Prevent multiple simultaneous sirens
+    if (this.testTimeoutId) {
+      clearTimeout(this.testTimeoutId);
+      this.testTimeoutId = null;
+    }
+
+    if (this.isPlaying) return; // Prevent multiple overlapping siren instances
     this.isPlaying = true;
 
     this.initContext();
-    this.playEmergencySiren(false);
-
-    if (this.intervalId) clearInterval(this.intervalId);
-    // Repeats every 740ms (0.58s siren burst + 0.16s pause between cycles)
-    this.intervalId = setInterval(() => {
-      if (!this.isPlaying) return;
-      this.playEmergencySiren(false);
-    }, 740);
+    this.startContinuousSiren(false);
   }
 
   /**
-   * Stop the active siren immediately when warning clears or monitoring stops
+   * Stop the active siren immediately when warning condition clears or monitoring stops
    */
   stopDrowsinessAlert() {
     this.isPlaying = false;
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-      this.intervalId = null;
+    if (this.testTimeoutId) {
+      clearTimeout(this.testTimeoutId);
+      this.testTimeoutId = null;
     }
-
-    // Instantly cut off and stop any currently active siren oscillator
-    if (this.activeNodes && this.activeNodes.length > 0) {
-      this.activeNodes.forEach(({ osc, gain }) => {
-        try {
-          if (this.audioCtx && this.audioCtx.state === "running") {
-            gain.gain.cancelScheduledValues(this.audioCtx.currentTime);
-            gain.gain.setValueAtTime(0, this.audioCtx.currentTime);
-          }
-          osc.stop();
-          osc.disconnect();
-        } catch (e) {}
-      });
-      this.activeNodes = [];
-    }
+    this.stopContinuousSiren();
   }
 
   /**
-   * Test current alert siren (plays one siren cycle; overrides mute for user verification)
+   * Test the emergency siren (runs continuously for 2.0s, then cleanly stops)
    */
   async testAlertSound() {
     await this.initContext();
-    this.playEmergencySiren(true);
+
+    // Reset any currently playing siren
+    this.stopDrowsinessAlert();
+
+    this.startContinuousSiren(true);
+
+    this.testTimeoutId = setTimeout(() => {
+      this.stopContinuousSiren();
+      this.testTimeoutId = null;
+    }, 2000);
   }
 
   /**
-   * Set volume level (0-100)
+   * Update volume level (0-100)
    */
   setVolume(vol) {
     this.volume = Math.max(0, Math.min(100, Math.round(vol)));
     localStorage.setItem("drowsiness_alarm_volume", this.volume.toString());
+
+    // Dynamically update active siren gain in real time
+    if (this.currentSiren && this.audioCtx && this.audioCtx.state === "running") {
+      try {
+        const gain = this.getGainLevel(false);
+        this.currentSiren.gainNode.gain.cancelScheduledValues(this.audioCtx.currentTime);
+        this.currentSiren.gainNode.gain.linearRampToValueAtTime(gain, this.audioCtx.currentTime + 0.02);
+      } catch (e) {}
+    }
   }
 
   /**
    * Toggle mute state
-   * If muted, visual warning continues to display actively in the UI
+   * If muted, visual warnings continue displaying in the UI
    */
   toggleMute() {
     this.isMuted = !this.isMuted;
     localStorage.setItem("drowsiness_alarm_muted", this.isMuted ? "true" : "false");
+
     if (this.isMuted) {
-      // Immediately silence any active audio while keeping visual warning active
-      this.stopDrowsinessAlert();
+      // Immediately silence the audio while visual warning remains active
+      this.stopContinuousSiren();
+    } else if (this.isPlaying) {
+      // If unmuted while drowsiness is still active, immediately resume siren
+      this.startContinuousSiren(false);
     }
     return this.isMuted;
   }
