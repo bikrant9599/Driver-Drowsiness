@@ -1,6 +1,6 @@
 /* ==========================================================================
    DRIVER DROWSINESS DETECTION - APPLICATION CONTROLLER
-   Full-screen modern computer-vision dashboard with Emergency Alert warning system
+   Full-screen modern computer-vision dashboard with Emergency Siren warning system
    ========================================================================== */
 
 import { ICONS, formatDurationText, formatTimerDisplay, formatDateTime } from "./utils.js";
@@ -126,7 +126,7 @@ class SingleScreenApp {
   }
 
   /* -------------------------------------------------------------------------
-     1. Main Screen View (Ready State with Emergency Alert Controls)
+     1. Main Screen View (Ready State with Emergency Siren Controls)
      ------------------------------------------------------------------------- */
   renderMainView() {
     const isMuted = soundManager.isMuted;
@@ -144,17 +144,17 @@ class SingleScreenApp {
         </button>
       </div>
 
-      <!-- Emergency Alert Sound & Volume Controls -->
+      <!-- Emergency Siren Sound & Volume Controls -->
       <div class="dashboard-controls-card">
         <div class="control-group">
-          <span class="control-label">Emergency Alert</span>
-          <button class="control-btn" id="mute-toggle-btn" title="${isMuted ? 'Unmute alert sound' : 'Mute alert sound'}">
+          <span class="control-label">Emergency Siren</span>
+          <button class="control-btn" id="mute-toggle-btn" title="${isMuted ? 'Unmute alert siren' : 'Mute alert siren'}">
             ${isMuted ? ICONS.volumeMute : ICONS.volumeUp}
             <span>${isMuted ? 'Muted' : 'Sound Active'}</span>
           </button>
-          <button class="control-btn" id="test-sound-btn" title="Test Emergency Alert sound">
+          <button class="control-btn" id="test-sound-btn" title="Test Emergency Siren sound">
             ${ICONS.bell}
-            <span>Test Sound</span>
+            <span>Test Siren</span>
           </button>
         </div>
 
@@ -168,7 +168,7 @@ class SingleScreenApp {
               value="${vol}"
               class="volume-slider"
               id="volume-slider"
-              aria-label="Alert Sound Volume"
+              aria-label="Alert Siren Volume"
             />
             <span class="volume-val" id="volume-val-display">${vol}%</span>
           </div>
@@ -214,13 +214,13 @@ class SingleScreenApp {
           </div>
 
           <div class="control-group">
-            <button class="control-btn" id="live-mute-toggle-btn" title="${isMuted ? 'Unmute alert sound' : 'Mute alert sound'}">
+            <button class="control-btn" id="live-mute-toggle-btn" title="${isMuted ? 'Unmute alert siren' : 'Mute alert siren'}">
               ${isMuted ? ICONS.volumeMute : ICONS.volumeUp}
               <span>${isMuted ? 'Muted' : 'Sound Active'}</span>
             </button>
-            <button class="control-btn" id="live-test-sound-btn" title="Test Emergency Alert sound">
+            <button class="control-btn" id="live-test-sound-btn" title="Test Emergency Siren sound">
               ${ICONS.bell}
-              <span>Test Sound</span>
+              <span>Test Siren</span>
             </button>
           </div>
         </div>
