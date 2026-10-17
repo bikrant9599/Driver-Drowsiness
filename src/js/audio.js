@@ -1,6 +1,7 @@
 /* ==========================================================================
    AUDIO SYNTHESIZER & AUDIBLE ALARM SYSTEM
-   Loud, intense, continuous rising-and-falling Emergency Siren (Web Audio API)
+   High-Priority Emergency Alarm: Dual-Layered Siren Wail + Pulsing Strobe
+   Synthesized programmatically via the Web Audio API
    ========================================================================== */
 
 export const ALERT_SOUND_NAME = "Emergency Siren";
@@ -9,7 +10,7 @@ class SoundManager {
   constructor() {
     this.audioCtx = null;
     this.isPlaying = false;
-    this.currentSiren = null; // { carrier, lfo, lfoGain, filter, gainNode }
+    this.currentAlarm = null; // { sirenCarrier, sirenLfo, pulseCarrier, pulseLfo, masterGain }
     this.testTimeoutId = null;
 
     // Load persisted volume & mute
@@ -48,17 +49,18 @@ class SoundManager {
   getGainLevel(overrideMute = false) {
     if (!overrideMute && this.isMuted) return 0;
     const effectiveVol = overrideMute && this.volume <= 0 ? 50 : this.volume;
-    // Calibrated safe gain level to prevent speaker clipping or hearing fatigue
-    return Math.max(0.04, (effectiveVol / 100) * 0.42);
+    // Calibrated safe master gain to prevent distortion or clipping
+    return Math.max(0.04, (effectiveVol / 100) * 0.40);
   }
 
   /**
-   * Start the continuous Emergency Siren
-   * Rapidly rising and falling pitch (440Hz <-> 1200Hz sweep) with zero pauses between cycles
+   * Start the dual-layer High-Priority Emergency Siren:
+   * Layer 1: Fast alternating high-low siren wail (430Hz - 1070Hz at 3.2Hz)
+   * Layer 2: Sharp, rapid electronic warning strobe tone (1450Hz pulsing at 8Hz)
+   * Plays continuously without gaps while genuine drowsiness is active
    */
-  startContinuousSiren(overrideMute = false) {
-    // Prevent multiple overlapping siren instances
-    if (this.currentSiren) return;
+  startContinuousAlarm(overrideMute = false) {
+    if (this.currentAlarm) return; // Prevent duplicate instances
 
     const gainLevel = this.getGainLevel(overrideMute);
     if (gainLevel <= 0) return;
@@ -69,84 +71,128 @@ class SoundManager {
     try {
       const now = this.audioCtx.currentTime;
 
-      // 1. Primary Sound Generator (Carrier Oscillator)
-      // Sawtooth wave for sharp, urgent, attention-grabbing emergency harmonics
-      const carrier = this.audioCtx.createOscillator();
-      carrier.type = "sawtooth";
-      carrier.frequency.setValueAtTime(820, now);
+      // Master output gain
+      const masterGain = this.audioCtx.createGain();
+      masterGain.gain.setValueAtTime(0.0001, now);
+      masterGain.gain.linearRampToValueAtTime(gainLevel, now + 0.02);
+      masterGain.connect(this.audioCtx.destination);
 
-      // 2. Frequency Modulation LFO for seamless, relentless rising-and-falling wail
-      // Triangle wave modulates pitch smoothly from 440 Hz up to 1200 Hz
-      const lfo = this.audioCtx.createOscillator();
-      lfo.type = "triangle";
-      lfo.frequency.setValueAtTime(2.6, now); // 2.6 complete cycles per second for high-urgency cadence
+      // --- LAYER 1: Alternating High-Low Siren Wail ---
+      const sirenCarrier = this.audioCtx.createOscillator();
+      sirenCarrier.type = "sawtooth";
+      sirenCarrier.frequency.setValueAtTime(750, now);
 
-      // Modulation depth: 820 Hz ± 380 Hz
-      const lfoGain = this.audioCtx.createGain();
-      lfoGain.gain.setValueAtTime(380, now);
+      const sirenLfo = this.audioCtx.createOscillator();
+      sirenLfo.type = "triangle";
+      sirenLfo.frequency.setValueAtTime(3.2, now); // Fast 3.2 sweeps per second
 
-      lfo.connect(lfoGain);
-      lfoGain.connect(carrier.frequency);
+      const sirenLfoGain = this.audioCtx.createGain();
+      sirenLfoGain.gain.setValueAtTime(320, now); // 750 ± 320 Hz (430Hz to 1070Hz)
 
-      // 3. Acoustic Low-Pass Filter
-      // Filters harsh extreme high frequencies (above 2500Hz) to prevent clipping/distortion
-      const filter = this.audioCtx.createBiquadFilter();
-      filter.type = "lowpass";
-      filter.frequency.setValueAtTime(2500, now);
-      filter.Q.setValueAtTime(2.2, now); // Slight resonance for solid acoustic presence on speakers
+      sirenLfo.connect(sirenLfoGain);
+      sirenLfoGain.connect(sirenCarrier.frequency);
 
-      // 4. Output Volume Gain Node with smooth rapid attack
-      const gainNode = this.audioCtx.createGain();
-      gainNode.gain.setValueAtTime(0.0001, now);
-      gainNode.gain.linearRampToValueAtTime(gainLevel, now + 0.02);
+      const sirenFilter = this.audioCtx.createBiquadFilter();
+      sirenFilter.type = "lowpass";
+      sirenFilter.frequency.setValueAtTime(2200, now);
+      sirenFilter.Q.setValueAtTime(1.8, now);
 
-      // Connect nodes
-      carrier.connect(filter);
-      filter.connect(gainNode);
-      gainNode.connect(this.audioCtx.destination);
+      const sirenGain = this.audioCtx.createGain();
+      sirenGain.gain.setValueAtTime(0.65, now);
 
-      carrier.start(now);
-      lfo.start(now);
+      sirenCarrier.connect(sirenFilter);
+      sirenFilter.connect(sirenGain);
+      sirenGain.connect(masterGain);
 
-      this.currentSiren = { carrier, lfo, lfoGain, filter, gainNode };
+      // --- LAYER 2: Sharp Pulsing Electronic Warning Tone (Strobe) ---
+      const pulseCarrier = this.audioCtx.createOscillator();
+      pulseCarrier.type = "square";
+      pulseCarrier.frequency.setValueAtTime(1450, now); // Piercing electronic frequency
+
+      // 8 Hz Pulse LFO toggling the amplitude rapidly
+      const pulseLfo = this.audioCtx.createOscillator();
+      pulseLfo.type = "square";
+      pulseLfo.frequency.setValueAtTime(8.0, now); // 8 sharp pulses/second
+
+      const pulseLfoGain = this.audioCtx.createGain();
+      pulseLfoGain.gain.setValueAtTime(0.5, now);
+
+      const pulseAmpGain = this.audioCtx.createGain();
+      pulseAmpGain.gain.setValueAtTime(0.5, now);
+
+      pulseLfo.connect(pulseLfoGain);
+      pulseLfoGain.connect(pulseAmpGain.gain);
+
+      const pulseFilter = this.audioCtx.createBiquadFilter();
+      pulseFilter.type = "bandpass";
+      pulseFilter.frequency.setValueAtTime(1450, now);
+      pulseFilter.Q.setValueAtTime(2.5, now);
+
+      const pulseGain = this.audioCtx.createGain();
+      pulseGain.gain.setValueAtTime(0.40, now);
+
+      pulseCarrier.connect(pulseFilter);
+      pulseFilter.connect(pulseAmpGain);
+      pulseAmpGain.connect(pulseGain);
+      pulseGain.connect(masterGain);
+
+      // Start all oscillators
+      sirenCarrier.start(now);
+      sirenLfo.start(now);
+      pulseCarrier.start(now);
+      pulseLfo.start(now);
+
+      this.currentAlarm = {
+        sirenCarrier,
+        sirenLfo,
+        pulseCarrier,
+        pulseLfo,
+        masterGain
+      };
     } catch (e) {
-      console.warn("Error starting continuous siren:", e);
-      this.currentSiren = null;
+      console.warn("Error starting emergency alarm:", e);
+      this.currentAlarm = null;
     }
   }
 
   /**
-   * Stop the continuous Emergency Siren immediately with clean smooth fade-out (no clicks/pops)
+   * Stop the emergency alarm immediately with a 25ms smooth fade-out (no clicks/pops)
    */
-  stopContinuousSiren() {
-    if (!this.currentSiren) return;
+  stopContinuousAlarm() {
+    if (!this.currentAlarm) return;
 
-    const { carrier, lfo, gainNode } = this.currentSiren;
-    this.currentSiren = null;
+    const { sirenCarrier, sirenLfo, pulseCarrier, pulseLfo, masterGain } = this.currentAlarm;
+    this.currentAlarm = null;
 
     try {
       if (this.audioCtx && this.audioCtx.state === "running") {
         const now = this.audioCtx.currentTime;
-        gainNode.gain.cancelScheduledValues(now);
-        gainNode.gain.setValueAtTime(gainNode.gain.value, now);
-        gainNode.gain.linearRampToValueAtTime(0.0001, now + 0.025);
+        masterGain.gain.cancelScheduledValues(now);
+        masterGain.gain.setValueAtTime(masterGain.gain.value, now);
+        masterGain.gain.linearRampToValueAtTime(0.0001, now + 0.025);
 
-        carrier.stop(now + 0.03);
-        lfo.stop(now + 0.03);
+        sirenCarrier.stop(now + 0.03);
+        sirenLfo.stop(now + 0.03);
+        pulseCarrier.stop(now + 0.03);
+        pulseLfo.stop(now + 0.03);
 
         setTimeout(() => {
           try {
-            carrier.disconnect();
-            lfo.disconnect();
-            gainNode.disconnect();
+            sirenCarrier.disconnect();
+            sirenLfo.disconnect();
+            pulseCarrier.disconnect();
+            pulseLfo.disconnect();
+            masterGain.disconnect();
           } catch (e) {}
         }, 50);
       } else {
-        carrier.stop();
-        lfo.stop();
+        sirenCarrier.stop();
+        sirenLfo.stop();
+        pulseCarrier.stop();
+        pulseLfo.stop();
       }
     } catch (e) {
-      console.warn("Error stopping continuous siren:", e);
+      console.warn("Error stopping emergency alarm:", e);
     }
   }
 
@@ -165,7 +211,7 @@ class SoundManager {
     this.isPlaying = true;
 
     this.initContext();
-    this.startContinuousSiren(false);
+    this.startContinuousAlarm(false);
   }
 
   /**
@@ -177,7 +223,7 @@ class SoundManager {
       clearTimeout(this.testTimeoutId);
       this.testTimeoutId = null;
     }
-    this.stopContinuousSiren();
+    this.stopContinuousAlarm();
   }
 
   /**
@@ -189,10 +235,10 @@ class SoundManager {
     // Reset any currently playing siren
     this.stopDrowsinessAlert();
 
-    this.startContinuousSiren(true);
+    this.startContinuousAlarm(true);
 
     this.testTimeoutId = setTimeout(() => {
-      this.stopContinuousSiren();
+      this.stopContinuousAlarm();
       this.testTimeoutId = null;
     }, 2000);
   }
@@ -204,12 +250,12 @@ class SoundManager {
     this.volume = Math.max(0, Math.min(100, Math.round(vol)));
     localStorage.setItem("drowsiness_alarm_volume", this.volume.toString());
 
-    // Dynamically update active siren gain in real time
-    if (this.currentSiren && this.audioCtx && this.audioCtx.state === "running") {
+    // Dynamically update active alarm gain in real time
+    if (this.currentAlarm && this.audioCtx && this.audioCtx.state === "running") {
       try {
         const gain = this.getGainLevel(false);
-        this.currentSiren.gainNode.gain.cancelScheduledValues(this.audioCtx.currentTime);
-        this.currentSiren.gainNode.gain.linearRampToValueAtTime(gain, this.audioCtx.currentTime + 0.02);
+        this.currentAlarm.masterGain.gain.cancelScheduledValues(this.audioCtx.currentTime);
+        this.currentAlarm.masterGain.gain.linearRampToValueAtTime(gain, this.audioCtx.currentTime + 0.02);
       } catch (e) {}
     }
   }
@@ -224,10 +270,10 @@ class SoundManager {
 
     if (this.isMuted) {
       // Immediately silence the audio while visual warning remains active
-      this.stopContinuousSiren();
+      this.stopContinuousAlarm();
     } else if (this.isPlaying) {
-      // If unmuted while drowsiness is still active, immediately resume siren
-      this.startContinuousSiren(false);
+      // If unmuted while drowsiness is still active, immediately resume alarm
+      this.startContinuousAlarm(false);
     }
     return this.isMuted;
   }
