@@ -1,12 +1,12 @@
 /* ==========================================================================
    DRIVER DROWSINESS DETECTION - APPLICATION CONTROLLER
-   Full-screen modern computer-vision dashboard with multi-sound selection
+   Full-screen modern computer-vision dashboard with Emergency Alert warning system
    ========================================================================== */
 
 import { ICONS, formatDurationText, formatTimerDisplay, formatDateTime } from "./utils.js";
 import { appState } from "./state.js";
 import { visionEngine } from "./vision.js";
-import { soundManager, SOUND_PRESETS } from "./audio.js";
+import { soundManager } from "./audio.js";
 
 class SingleScreenApp {
   constructor() {
@@ -126,95 +126,51 @@ class SingleScreenApp {
   }
 
   /* -------------------------------------------------------------------------
-     1. Main Screen View (Full-Width Dashboard Grid with Multi-Sound Selection)
+     1. Main Screen View (Ready State with Emergency Alert Controls)
      ------------------------------------------------------------------------- */
   renderMainView() {
     const isMuted = soundManager.isMuted;
     const vol = soundManager.volume;
-    const selectedSoundId = soundManager.selectedSound;
-
-    const presetsHtml = SOUND_PRESETS.map((preset) => {
-      const isSelected = preset.id === selectedSoundId;
-      return `
-        <div class="sound-preset-card ${isSelected ? 'selected' : ''}" data-sound-id="${preset.id}">
-          <div class="preset-info-wrap">
-            <div class="preset-radio">
-              <div class="preset-radio-inner"></div>
-            </div>
-            <div class="preset-text">
-              <span class="preset-name">${preset.name}</span>
-              <span class="preset-desc">${preset.desc}</span>
-            </div>
-          </div>
-          <button class="preview-btn" data-preview-id="${preset.id}" title="Preview ${preset.name}">
-            ${ICONS.play}
-            <span>Preview</span>
-          </button>
-        </div>
-      `;
-    }).join("");
 
     return `
-      <div class="home-dashboard-grid">
-        <!-- Left Hero Column -->
-        <div class="home-hero-col">
-          <div class="hero-status-pill">
-            <span class="hero-status-dot"></span>
-            <span>Camera System Ready</span>
-          </div>
+      <h1 class="app-title">Driver Drowsiness Detection</h1>
+      <p class="app-instruction">
+        Real-time computer-vision monitoring for driver alertness and prolonged eye closure. Keep your eyes on the road.
+      </p>
 
-          <h1 class="app-title">Driver Drowsiness Detection</h1>
-          <p class="app-instruction">
-            Real-time computer-vision monitoring for driver alertness and prolonged eye closure. Keep your eyes on the road.
-          </p>
+      <div class="start-wrapper">
+        <button class="btn btn-primary btn-large" id="start-monitoring-btn">
+          ${ICONS.play} START MONITORING
+        </button>
+      </div>
 
-          <div class="start-wrapper">
-            <button class="btn btn-primary btn-large" id="start-monitoring-btn">
-              ${ICONS.play} START MONITORING
-            </button>
-          </div>
+      <!-- Emergency Alert Sound & Volume Controls -->
+      <div class="dashboard-controls-card">
+        <div class="control-group">
+          <span class="control-label">Emergency Alert</span>
+          <button class="control-btn" id="mute-toggle-btn" title="${isMuted ? 'Unmute alert sound' : 'Mute alert sound'}">
+            ${isMuted ? ICONS.volumeMute : ICONS.volumeUp}
+            <span>${isMuted ? 'Muted' : 'Sound Active'}</span>
+          </button>
+          <button class="control-btn" id="test-sound-btn" title="Test Emergency Alert sound">
+            ${ICONS.bell}
+            <span>Test Sound</span>
+          </button>
         </div>
 
-        <!-- Right Sound Settings Panel Column -->
-        <div class="home-audio-col">
-          <div class="sound-settings-panel">
-            <div class="panel-header">
-              <span class="panel-title">
-                ${ICONS.bell}
-                <span>Alert Sound Selection</span>
-              </span>
-              <button class="control-btn" id="mute-toggle-btn" title="${isMuted ? 'Unmute alert sound' : 'Mute alert sound'}">
-                ${isMuted ? ICONS.volumeMute : ICONS.volumeUp}
-                <span>${isMuted ? 'Muted' : 'Sound Active'}</span>
-              </button>
-            </div>
-
-            <!-- List of 5 Distinct Selectable Sounds -->
-            <div class="sound-presets-list" id="sound-presets-list">
-              ${presetsHtml}
-            </div>
-
-            <!-- Global Volume Slider -->
-            <div class="sound-controls-row">
-              <div class="volume-slider-wrap">
-                <span class="control-label">Volume</span>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value="${vol}"
-                  class="volume-slider"
-                  id="volume-slider"
-                  aria-label="Alert Sound Volume"
-                />
-                <span class="volume-val" id="volume-val-display">${vol}%</span>
-              </div>
-
-              <button class="control-btn" id="test-sound-btn" title="Test currently selected warning alert sound">
-                ${ICONS.bell}
-                <span>Test Current Sound</span>
-              </button>
-            </div>
+        <div class="control-group">
+          <span class="control-label">Volume</span>
+          <div class="volume-slider-wrap">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value="${vol}"
+              class="volume-slider"
+              id="volume-slider"
+              aria-label="Alert Sound Volume"
+            />
+            <span class="volume-val" id="volume-val-display">${vol}%</span>
           </div>
         </div>
       </div>
@@ -228,7 +184,6 @@ class SingleScreenApp {
     const statusClass = this.getStatusClass();
     const isMuted = soundManager.isMuted;
     const clockStr = formatTimerDisplay(appState.sessionDurationSec);
-    const activePreset = SOUND_PRESETS.find((p) => p.id === soundManager.selectedSound) || SOUND_PRESETS[0];
 
     return `
       <div class="monitoring-container">
@@ -251,20 +206,19 @@ class SingleScreenApp {
           </div>
         </div>
 
-        <!-- Monitoring Telemetrics & Audio Bar -->
+        <!-- Monitoring Telemetrics & Sound Bar -->
         <div class="monitoring-bar">
           <div class="session-live-clock">
             <span>Duration:</span>
             <span class="clock-val" id="live-clock-val">${clockStr}</span>
           </div>
 
-          <div class="monitoring-sound-meta">
-            <span class="current-sound-badge">Sound: ${activePreset.name}</span>
+          <div class="control-group">
             <button class="control-btn" id="live-mute-toggle-btn" title="${isMuted ? 'Unmute alert sound' : 'Mute alert sound'}">
               ${isMuted ? ICONS.volumeMute : ICONS.volumeUp}
-              <span>${isMuted ? 'Muted' : 'Active'}</span>
+              <span>${isMuted ? 'Muted' : 'Sound Active'}</span>
             </button>
-            <button class="control-btn" id="live-test-sound-btn" title="Test warning chime">
+            <button class="control-btn" id="live-test-sound-btn" title="Test Emergency Alert sound">
               ${ICONS.bell}
               <span>Test Sound</span>
             </button>
@@ -567,32 +521,6 @@ class SingleScreenApp {
       };
     }
 
-    // Sound Preset Selection Cards
-    const presetCards = document.querySelectorAll(".sound-preset-card");
-    presetCards.forEach((card) => {
-      card.onclick = (e) => {
-        // If clicking the preview button, don't trigger selection toggle
-        if (e.target.closest(".preview-btn")) return;
-        const soundId = card.getAttribute("data-sound-id");
-        if (soundId) {
-          soundManager.selectSound(soundId);
-          this.render();
-        }
-      };
-    });
-
-    // Sound Preview Buttons
-    const previewButtons = document.querySelectorAll(".preview-btn");
-    previewButtons.forEach((btn) => {
-      btn.onclick = (e) => {
-        e.stopPropagation();
-        const soundId = btn.getAttribute("data-preview-id");
-        if (soundId) {
-          soundManager.previewSound(soundId);
-        }
-      };
-    });
-
     // Audio Mute toggle (Main view)
     const muteBtn = document.getElementById("mute-toggle-btn");
     if (muteBtn) {
@@ -609,7 +537,7 @@ class SingleScreenApp {
         const isMuted = soundManager.toggleMute();
         liveMuteBtn.innerHTML = `
           ${isMuted ? ICONS.volumeMute : ICONS.volumeUp}
-          <span>${isMuted ? 'Muted' : 'Active'}</span>
+          <span>${isMuted ? 'Muted' : 'Sound Active'}</span>
         `;
       };
     }
