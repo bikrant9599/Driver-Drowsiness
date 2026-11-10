@@ -168,7 +168,7 @@ class SingleScreenApp {
       </div>
 
       <!-- Feature Capabilities Showcase Grid -->
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; width: 100%; max-width: 780px; margin-top: 1.5rem;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; width: 100%; margin-top: 1.25rem;">
         <div class="telemetry-card" style="padding: 0.75rem;">
           <div class="safety-card-title">${ICONS.eye} Drowsiness</div>
           <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 0.25rem;">
@@ -257,7 +257,7 @@ class SingleScreenApp {
     const settings = appState.settings;
 
     return `
-      <div class="monitoring-container" style="width: 100%; max-width: 960px;">
+      <div class="monitoring-container">
         <h1 class="app-title">Driver Safety Telematics Console</h1>
         <p class="app-instruction">Live multi-system cockpit monitoring for drowsiness, seat belt, phone distraction, and road focus.</p>
 
