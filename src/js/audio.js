@@ -1,6 +1,6 @@
 /* ==========================================================================
    AUDIO SYNTHESIZER & AUDIBLE ALARM SYSTEM
-   High-Priority Emergency Alarm: Dual-Layered Siren Wail + Pulsing Strobe
+   Three-Stage Warning Sound Engine & High-Priority Emergency Siren
    Synthesized programmatically via the Web Audio API
    ========================================================================== */
 
@@ -10,7 +10,10 @@ class SoundManager {
   constructor() {
     this.audioCtx = null;
     this.isPlaying = false;
+    this.currentStage = 0; // 0: None, 1: Stage 1, 2: Stage 2, 3: Stage 3
     this.currentAlarm = null; // { sirenCarrier, sirenLfo, pulseCarrier, pulseLfo, masterGain }
+    this.stage2Interval = null;
+    this.stage1Timeouts = [];
     this.testTimeoutId = null;
 
     // Load persisted volume & mute
@@ -49,18 +52,147 @@ class SoundManager {
   getGainLevel(overrideMute = false) {
     if (!overrideMute && this.isMuted) return 0;
     const effectiveVol = overrideMute && this.volume <= 0 ? 50 : this.volume;
-    // Calibrated safe master gain to prevent distortion or clipping
     return Math.max(0.04, (effectiveVol / 100) * 0.40);
   }
 
-  /**
-   * Start the dual-layer High-Priority Emergency Siren:
-   * Layer 1: Fast alternating high-low siren wail (430Hz - 1070Hz at 3.2Hz)
-   * Layer 2: Sharp, rapid electronic warning strobe tone (1450Hz pulsing at 8Hz)
-   * Plays continuously without gaps while genuine drowsiness is active
-   */
+  /* -------------------------------------------------------------------------
+     STAGE 1: Three Short, Sharp Warning Beeps
+     ------------------------------------------------------------------------- */
+  playStage1Beeps(overrideMute = false) {
+    // If higher stage is already playing, do not interrupt
+    if (this.currentStage >= 2) return;
+
+    this.stopStage1Beeps();
+    const gainLevel = this.getGainLevel(overrideMute);
+    if (gainLevel <= 0) return;
+
+    this.initContext();
+    if (!this.audioCtx || this.audioCtx.state !== "running") return;
+
+    this.currentStage = 1;
+
+    // Schedule exactly 3 short sharp beeps (at 0ms, 160ms, 320ms)
+    [0, 160, 320].forEach((delayMs, index) => {
+      const tid = setTimeout(() => {
+        if (!this.audioCtx || this.audioCtx.state !== "running") return;
+        try {
+          const now = this.audioCtx.currentTime;
+          const osc = this.audioCtx.createOscillator();
+          const gain = this.audioCtx.createGain();
+
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(1050, now);
+          osc.frequency.exponentialRampToValueAtTime(880, now + 0.08);
+
+          gain.gain.setValueAtTime(0.0001, now);
+          gain.gain.linearRampToValueAtTime(gainLevel * 0.75, now + 0.01);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+
+          osc.connect(gain);
+          gain.connect(this.audioCtx.destination);
+
+          osc.start(now);
+          osc.stop(now + 0.09);
+
+          setTimeout(() => {
+            try {
+              osc.disconnect();
+              gain.disconnect();
+            } catch (e) {}
+          }, 120);
+        } catch (e) {}
+
+        if (index === 2) {
+          setTimeout(() => {
+            if (this.currentStage === 1) {
+              this.currentStage = 0;
+            }
+          }, 100);
+        }
+      }, delayMs);
+
+      this.stage1Timeouts.push(tid);
+    });
+  }
+
+  stopStage1Beeps() {
+    this.stage1Timeouts.forEach((tid) => clearTimeout(tid));
+    this.stage1Timeouts = [];
+    if (this.currentStage === 1) {
+      this.currentStage = 0;
+    }
+  }
+
+  /* -------------------------------------------------------------------------
+     STAGE 2: Urgent Repeating Two-Tone Warning Pulse
+     ------------------------------------------------------------------------- */
+  startStage2CriticalSound(overrideMute = false) {
+    if (this.currentStage === 2) return;
+    if (this.currentStage === 3) return; // Stage 3 takes precedence
+
+    this.stopStage1Beeps();
+    const gainLevel = this.getGainLevel(overrideMute);
+    if (gainLevel <= 0) return;
+
+    this.initContext();
+    if (!this.audioCtx || this.audioCtx.state !== "running") return;
+
+    this.currentStage = 2;
+
+    const playPip = () => {
+      if (this.currentStage !== 2 || !this.audioCtx || this.audioCtx.state !== "running") return;
+      try {
+        const now = this.audioCtx.currentTime;
+        const osc = this.audioCtx.createOscillator();
+        const gain = this.audioCtx.createGain();
+
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(920, now);
+        osc.frequency.linearRampToValueAtTime(680, now + 0.12);
+
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.linearRampToValueAtTime(gainLevel * 0.85, now + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+
+        osc.connect(gain);
+        gain.connect(this.audioCtx.destination);
+
+        osc.start(now);
+        osc.stop(now + 0.13);
+
+        setTimeout(() => {
+          try {
+            osc.disconnect();
+            gain.disconnect();
+          } catch (e) {}
+        }, 150);
+      } catch (e) {}
+    };
+
+    // Play immediately then repeat every 240ms
+    playPip();
+    if (this.stage2Interval) clearInterval(this.stage2Interval);
+    this.stage2Interval = setInterval(playPip, 240);
+  }
+
+  stopStage2CriticalSound() {
+    if (this.stage2Interval) {
+      clearInterval(this.stage2Interval);
+      this.stage2Interval = null;
+    }
+    if (this.currentStage === 2) {
+      this.currentStage = 0;
+    }
+  }
+
+  /* -------------------------------------------------------------------------
+     STAGE 3: Continuous Dual-Layer Emergency Siren
+     ------------------------------------------------------------------------- */
   startContinuousAlarm(overrideMute = false) {
     if (this.currentAlarm) return; // Prevent duplicate instances
+
+    this.stopStage1Beeps();
+    this.stopStage2CriticalSound();
 
     const gainLevel = this.getGainLevel(overrideMute);
     if (gainLevel <= 0) return;
@@ -69,6 +201,7 @@ class SoundManager {
     if (!this.audioCtx || this.audioCtx.state !== "running") return;
 
     try {
+      this.currentStage = 3;
       const now = this.audioCtx.currentTime;
 
       // Master output gain
@@ -107,9 +240,8 @@ class SoundManager {
       // --- LAYER 2: Sharp Pulsing Electronic Warning Tone (Strobe) ---
       const pulseCarrier = this.audioCtx.createOscillator();
       pulseCarrier.type = "square";
-      pulseCarrier.frequency.setValueAtTime(1450, now); // Piercing electronic frequency
+      pulseCarrier.frequency.setValueAtTime(1450, now);
 
-      // 8 Hz Pulse LFO toggling the amplitude rapidly
       const pulseLfo = this.audioCtx.createOscillator();
       pulseLfo.type = "square";
       pulseLfo.frequency.setValueAtTime(8.0, now); // 8 sharp pulses/second
@@ -152,17 +284,19 @@ class SoundManager {
     } catch (e) {
       console.warn("Error starting emergency alarm:", e);
       this.currentAlarm = null;
+      this.currentStage = 0;
     }
   }
 
-  /**
-   * Stop the emergency alarm immediately with a 25ms smooth fade-out (no clicks/pops)
-   */
   stopContinuousAlarm() {
-    if (!this.currentAlarm) return;
+    if (!this.currentAlarm) {
+      if (this.currentStage === 3) this.currentStage = 0;
+      return;
+    }
 
     const { sirenCarrier, sirenLfo, pulseCarrier, pulseLfo, masterGain } = this.currentAlarm;
     this.currentAlarm = null;
+    this.currentStage = 0;
 
     try {
       if (this.audioCtx && this.audioCtx.state === "running") {
@@ -196,45 +330,47 @@ class SoundManager {
     }
   }
 
-  /**
-   * Start repeating emergency siren when genuine drowsiness is confirmed
-   * Continues seamlessly without pauses while warning remains active
-   * Prevents multiple sirens from playing simultaneously
-   */
-  startDrowsinessAlert() {
-    if (this.testTimeoutId) {
-      clearTimeout(this.testTimeoutId);
-      this.testTimeoutId = null;
+  /* -------------------------------------------------------------------------
+     Unified Warning Stage Sound Controller
+     ------------------------------------------------------------------------- */
+  playWarningStage(stage) {
+    if (stage === 1) {
+      this.playStage1Beeps(false);
+    } else if (stage === 2) {
+      this.startStage2CriticalSound(false);
+    } else if (stage === 3) {
+      this.isPlaying = true;
+      this.startContinuousAlarm(false);
+    } else {
+      this.stopAllAlerts();
     }
-
-    if (this.isPlaying) return; // Prevent multiple overlapping siren instances
-    this.isPlaying = true;
-
-    this.initContext();
-    this.startContinuousAlarm(false);
   }
 
-  /**
-   * Stop the active siren immediately when warning condition clears or monitoring stops
-   */
-  stopDrowsinessAlert() {
+  stopAllAlerts() {
     this.isPlaying = false;
+    this.stopStage1Beeps();
+    this.stopStage2CriticalSound();
+    this.stopContinuousAlarm();
+    this.currentStage = 0;
+
     if (this.testTimeoutId) {
       clearTimeout(this.testTimeoutId);
       this.testTimeoutId = null;
     }
-    this.stopContinuousAlarm();
   }
 
-  /**
-   * Test the emergency siren (runs continuously for 2.0s, then cleanly stops)
-   */
+  // Backward compatibility aliases
+  startDrowsinessAlert() {
+    this.playWarningStage(3);
+  }
+
+  stopDrowsinessAlert() {
+    this.stopAllAlerts();
+  }
+
   async testAlertSound() {
     await this.initContext();
-
-    // Reset any currently playing siren
-    this.stopDrowsinessAlert();
-
+    this.stopAllAlerts();
     this.startContinuousAlarm(true);
 
     this.testTimeoutId = setTimeout(() => {
@@ -243,14 +379,10 @@ class SoundManager {
     }, 2000);
   }
 
-  /**
-   * Update volume level (0-100)
-   */
   setVolume(vol) {
     this.volume = Math.max(0, Math.min(100, Math.round(vol)));
     localStorage.setItem("drowsiness_alarm_volume", this.volume.toString());
 
-    // Dynamically update active alarm gain in real time
     if (this.currentAlarm && this.audioCtx && this.audioCtx.state === "running") {
       try {
         const gain = this.getGainLevel(false);
@@ -260,19 +392,13 @@ class SoundManager {
     }
   }
 
-  /**
-   * Toggle mute state
-   * If muted, visual warnings continue displaying in the UI
-   */
   toggleMute() {
     this.isMuted = !this.isMuted;
     localStorage.setItem("drowsiness_alarm_muted", this.isMuted ? "true" : "false");
 
     if (this.isMuted) {
-      // Immediately silence the audio while visual warning remains active
-      this.stopContinuousAlarm();
-    } else if (this.isPlaying) {
-      // If unmuted while drowsiness is still active, immediately resume alarm
+      this.stopAllAlerts();
+    } else if (this.currentStage === 3 || this.isPlaying) {
       this.startContinuousAlarm(false);
     }
     return this.isMuted;

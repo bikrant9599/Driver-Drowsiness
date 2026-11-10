@@ -1,7 +1,7 @@
 /* ==========================================================================
-   DRIVER DROWSINESS DETECTION - APPLICATION CONTROLLER
-   Full-screen modern computer-vision dashboard with Emergency Siren warning system,
-   real-time eye telemetry dashboard, and configurable accuracy calibration
+   DRIVER DROWSINESS & MULTI-FEATURE SAFETY SYSTEM - APPLICATION CONTROLLER
+   Full-screen modern computer-vision dashboard with Seat Belt Detection,
+   Mobile Phone Detection, Driver Attention Tracking, and Three-Stage Warning System
    ========================================================================== */
 
 import { ICONS, formatDurationText, formatTimerDisplay, formatDateTime } from "./utils.js";
@@ -40,11 +40,10 @@ class SingleScreenApp {
       this.onStateChange();
     });
 
-    // Duration timer ticker (increments sessionDurationSec during monitoring)
+    // Duration timer ticker
     this.timerInterval = setInterval(() => {
       if (appState.isMonitoring) {
         appState.sessionDurationSec++;
-        // Fast-path clock update without re-rendering entire DOM
         const clockEl = document.getElementById("live-clock-val");
         if (clockEl) {
           clockEl.textContent = formatTimerDisplay(appState.sessionDurationSec);
@@ -59,13 +58,11 @@ class SingleScreenApp {
   }
 
   onStateChange() {
-    // Fast path: if monitoring is active and view is already 'monitoring', only update live detection overlay & banner
     if (appState.isMonitoring && appState.currentView === "monitoring") {
       this.updateMonitoringUI();
       return;
     }
 
-    // View changed or session stopped: full re-render
     this.render();
   }
 
@@ -75,17 +72,17 @@ class SingleScreenApp {
     const currentView = appState.currentView;
 
     this.root.innerHTML = `
-      <div class="app-container">
+      <div class="app-container" id="app-container">
         <!-- Top Utility Header -->
         <header class="app-top-bar">
           <div class="top-bar-branding">
-            <span class="system-pill">AI Vision Assist</span>
+            <span class="system-pill">AI Cockpit Safety Vision</span>
           </div>
           <div class="top-bar-actions">
             <!-- Settings & Calibration Button -->
             <button class="icon-btn" id="header-settings-btn" aria-label="Detection Settings" title="Detection Settings & Calibration">
               ${ICONS.sliders}
-              <span>Settings</span>
+              <span>Safety Settings</span>
             </button>
 
             <!-- Fullscreen API Toggle -->
@@ -94,7 +91,7 @@ class SingleScreenApp {
               <span>${isFs ? 'Exit Full Screen' : 'Full Screen'}</span>
             </button>
 
-            <!-- History Button (when not already on history page and not actively monitoring) -->
+            <!-- History Button -->
             ${
               currentView !== "history" && !appState.isMonitoring
                 ? `<button class="icon-btn" id="header-history-btn" aria-label="View Session History" title="View History">
@@ -118,8 +115,11 @@ class SingleScreenApp {
 
         <!-- Safety & Privacy Notice Footer -->
         <footer class="app-safety-notice">
-          Safety Notice: Video is processed locally in real time and is never uploaded or recorded. This assistive tool is a prototype and does not replace safe driving decisions or adequate rest.
+          Driver Assistance Safety Notice: All neural networks and vision analytics process locally in real time. Video is never uploaded or saved. These features assist driver vigilance and do not substitute for attentive driving or manufacturer safety equipment.
         </footer>
+
+        <!-- Stage 3 Emergency Fullscreen Overlay Container -->
+        <div id="emergency-overlay-container"></div>
 
         <!-- Detection Settings Modal -->
         ${this.renderSettingsModal()}
@@ -147,7 +147,7 @@ class SingleScreenApp {
   }
 
   /* -------------------------------------------------------------------------
-     1. Main Screen View (Ready State with Calibration Profile & Controls)
+     1. Main Screen View (Cockpit Ready State)
      ------------------------------------------------------------------------- */
   renderMainView() {
     const isMuted = soundManager.isMuted;
@@ -156,15 +156,43 @@ class SingleScreenApp {
     const isCalibrated = settings.calibratedBaselineEAR !== null;
 
     return `
-      <h1 class="app-title">Driver Drowsiness Detection</h1>
+      <h1 class="app-title">AI Driver Safety & Drowsiness Detection</h1>
       <p class="app-instruction">
-        Real-time computer-vision monitoring for driver alertness and prolonged eye closure. Keep your eyes on the road.
+        Multi-modal computer-vision safety monitoring: Drowsiness & Microsleep, Seat Belt Compliance, Mobile Phone Distraction, and Road Attention Tracking.
       </p>
 
       <div class="start-wrapper">
         <button class="btn btn-primary btn-large" id="start-monitoring-btn">
-          ${ICONS.play} START MONITORING
+          ${ICONS.play} START SAFETY MONITORING
         </button>
+      </div>
+
+      <!-- Feature Capabilities Showcase Grid -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; width: 100%; max-width: 780px; margin-top: 1.5rem;">
+        <div class="telemetry-card" style="padding: 0.75rem;">
+          <div class="safety-card-title">${ICONS.eye} Drowsiness</div>
+          <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 0.25rem;">
+            8-point 3D EAR & blink frequency filtering
+          </div>
+        </div>
+        <div class="telemetry-card" style="padding: 0.75rem;">
+          <div class="safety-card-title">${ICONS.seatbelt} Seat Belt</div>
+          <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 0.25rem;">
+            Diagonal strap tracking & lighting validation
+          </div>
+        </div>
+        <div class="telemetry-card" style="padding: 0.75rem;">
+          <div class="safety-card-title">${ICONS.phone} Phone Detection</div>
+          <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 0.25rem;">
+            Real-time device holding & usage alerts
+          </div>
+        </div>
+        <div class="telemetry-card" style="padding: 0.75rem;">
+          <div class="safety-card-title">${ICONS.attention} Driver Attention</div>
+          <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 0.25rem;">
+            3D head pose direction (10s gaze alert)
+          </div>
+        </div>
       </div>
 
       <!-- Calibration Profile Card -->
@@ -172,24 +200,24 @@ class SingleScreenApp {
         <div class="calibration-status-left">
           ${ICONS.crosshair}
           <div>
-            <div>${isCalibrated ? '<strong>Personalized Eye Calibration Active</strong>' : '<strong>Standard Eye Profile</strong>'}</div>
+            <div>${isCalibrated ? '<strong>Personalized Eye Calibration Active</strong>' : '<strong>Standard Automotive Safety Profile</strong>'}</div>
             <div style="font-size: 0.775rem; color: var(--text-muted);">
               ${isCalibrated
-                ? `Baseline EAR: ${settings.calibratedBaselineEAR.toFixed(2)} · Closure Threshold: ${settings.earThreshold.toFixed(2)}`
-                : `Configured Threshold: ${settings.earThreshold.toFixed(2)} · Window: ${settings.drowsinessThresholdSec.toFixed(1)}s`}
+                ? `Baseline EAR: ${settings.calibratedBaselineEAR.toFixed(2)} · Closure Threshold: ${settings.earThreshold.toFixed(2)} · Distraction Window: ${settings.distractionWarningSec.toFixed(0)}s`
+                : `Closure: ${settings.earThreshold.toFixed(2)} · Phone Delay: ${settings.phoneWarningSec.toFixed(0)}s · Distraction: ${settings.distractionWarningSec.toFixed(0)}s`}
             </div>
           </div>
         </div>
-        <button class="control-btn" id="open-calibration-btn" title="Adjust detection thresholds or calibrate">
+        <button class="control-btn" id="open-calibration-btn" title="Adjust safety thresholds">
           ${ICONS.sliders}
-          <span>${isCalibrated ? 'Recalibrate' : 'Calibrate Eyes'}</span>
+          <span>Configure</span>
         </button>
       </div>
 
       <!-- Emergency Siren Sound & Volume Controls -->
       <div class="dashboard-controls-card">
         <div class="control-group">
-          <span class="control-label">Emergency Siren</span>
+          <span class="control-label">Three-Stage Alarm</span>
           <button class="control-btn" id="mute-toggle-btn" title="${isMuted ? 'Unmute alert siren' : 'Mute alert siren'}">
             ${isMuted ? ICONS.volumeMute : ICONS.volumeUp}
             <span>${isMuted ? 'Muted' : 'Sound Active'}</span>
@@ -220,7 +248,7 @@ class SingleScreenApp {
   }
 
   /* -------------------------------------------------------------------------
-     2. Live Monitoring View (Full-Screen Futuristic CV Dashboard)
+     2. Live Monitoring View (Full Cockpit Dashboard with 4 Safety Systems)
      ------------------------------------------------------------------------- */
   renderMonitoringView() {
     const statusClass = this.getStatusClass();
@@ -229,14 +257,14 @@ class SingleScreenApp {
     const settings = appState.settings;
 
     return `
-      <div class="monitoring-container">
-        <h1 class="app-title">Driver Drowsiness Detection</h1>
-        <p class="app-instruction">Monitor your eyes to detect signs of drowsiness in real time.</p>
+      <div class="monitoring-container" style="width: 100%; max-width: 960px;">
+        <h1 class="app-title">Driver Safety Telematics Console</h1>
+        <p class="app-instruction">Live multi-system cockpit monitoring for drowsiness, seat belt, phone distraction, and road focus.</p>
 
-        <!-- One Clear Large Status Banner -->
+        <!-- One Clear Large Unified Status Banner -->
         <div class="status-banner ${statusClass}" id="main-status-banner">
           <span class="status-indicator-dot"></span>
-          <span class="status-text" id="status-text">${appState.statusText || 'Starting camera...'}</span>
+          <span class="status-text" id="status-text">${appState.statusText || 'Starting vision system...'}</span>
         </div>
 
         <!-- Large Comfortable Camera Preview Wrapper -->
@@ -245,35 +273,63 @@ class SingleScreenApp {
           <canvas id="overlay-canvas"></canvas>
           <div class="camera-unavailable-overlay" id="camera-unavailable-overlay" style="display: ${appState.status === 'CAMERA_UNAVAILABLE' ? 'flex' : 'none'};">
             <p><strong>Camera Unavailable</strong></p>
-            <p class="error-detail">${appState.cameraError || 'Please allow camera permissions and ensure no other application is using your webcam.'}</p>
+            <p class="error-detail">${appState.cameraError || 'Please allow camera permissions in your browser.'}</p>
           </div>
         </div>
 
-        <!-- Real-Time Computer-Vision Telemetry Dashboard (Requirement 3) -->
+        <!-- 4 PRIMARY SAFETY MONITORING CARDS (Requirement 5) -->
+        <div class="safety-cards-grid">
+          <!-- Card 1: Drowsiness Detection -->
+          <div class="safety-card" id="card-drowsiness">
+            <div class="safety-card-header">
+              <span class="safety-card-title">${ICONS.eye} Drowsiness</span>
+              <span class="safety-indicator indicator-green" id="card-indicator-drowsiness"></span>
+            </div>
+            <div class="safety-card-status-text" id="card-status-drowsiness">ALERT</div>
+            <div class="safety-card-metric" id="card-metric-drowsiness">
+              EAR: <span id="card-metric-ear">0.28</span> · Closure: <span id="card-metric-closure">0.00s</span>
+            </div>
+          </div>
+
+          <!-- Card 2: Seat Belt Detection -->
+          <div class="safety-card" id="card-seatbelt">
+            <div class="safety-card-header">
+              <span class="safety-card-title">${ICONS.seatbelt} Seat Belt</span>
+              <span class="safety-indicator indicator-green" id="card-indicator-seatbelt"></span>
+            </div>
+            <div class="safety-card-status-text" id="card-status-seatbelt">DETECTED</div>
+            <div class="safety-card-metric" id="card-metric-seatbelt">
+              Fastened · Conf: 85%
+            </div>
+          </div>
+
+          <!-- Card 3: Mobile Phone Detection -->
+          <div class="safety-card" id="card-phone">
+            <div class="safety-card-header">
+              <span class="safety-card-title">${ICONS.phone} Phone Status</span>
+              <span class="safety-indicator indicator-green" id="card-indicator-phone"></span>
+            </div>
+            <div class="safety-card-status-text" id="card-status-phone">NO PHONE</div>
+            <div class="safety-card-metric" id="card-metric-phone">
+              Hands-Free · 0.0s
+            </div>
+          </div>
+
+          <!-- Card 4: Driver Attention Detection -->
+          <div class="safety-card" id="card-attention">
+            <div class="safety-card-header">
+              <span class="safety-card-title">${ICONS.attention} Attention</span>
+              <span class="safety-indicator indicator-green" id="card-indicator-attention"></span>
+            </div>
+            <div class="safety-card-status-text" id="card-status-attention">FOCUSED</div>
+            <div class="safety-card-metric" id="card-metric-attention">
+              Road Focused · 0.0s / 10s
+            </div>
+          </div>
+        </div>
+
+        <!-- Eye Telemetry Sub-Dashboard (Preserved & Enhanced) -->
         <div class="telemetry-dashboard-grid">
-          <!-- Card 1: Face Detection -->
-          <div class="telemetry-card">
-            <div class="telemetry-card-header">
-              <span class="telemetry-label">Face Detection</span>
-              <span id="hud-face-status" class="hud-badge badge-neutral">STANDBY</span>
-            </div>
-            <div class="telemetry-value-row">
-              <span class="telemetry-subtext">MediaPipe 478 Mesh</span>
-            </div>
-          </div>
-
-          <!-- Card 2: Eye Tracking -->
-          <div class="telemetry-card">
-            <div class="telemetry-card-header">
-              <span class="telemetry-label">Eye Tracking</span>
-              <span id="hud-track-status" class="hud-badge badge-neutral">STANDBY</span>
-            </div>
-            <div class="telemetry-value-row">
-              <span class="telemetry-subtext">Continuous Contour</span>
-            </div>
-          </div>
-
-          <!-- Card 3: Left Eye -->
           <div class="telemetry-card">
             <div class="telemetry-card-header">
               <span class="telemetry-label">Left Eye</span>
@@ -285,7 +341,6 @@ class SingleScreenApp {
             </div>
           </div>
 
-          <!-- Card 4: Right Eye -->
           <div class="telemetry-card">
             <div class="telemetry-card-header">
               <span class="telemetry-label">Right Eye</span>
@@ -297,53 +352,68 @@ class SingleScreenApp {
             </div>
           </div>
 
-          <!-- Card 5: Blink Detection -->
           <div class="telemetry-card">
             <div class="telemetry-card-header">
-              <span class="telemetry-label">Blink Detection</span>
+              <span class="telemetry-label">Blink Rate</span>
               <span id="hud-blink-pill" class="blink-live-pill"><span class="blink-dot"></span>LIVE</span>
             </div>
             <div class="telemetry-value-row">
               <span id="hud-blink-count" class="telemetry-metric tabular-nums">0</span>
-              <span class="telemetry-subtext">blinks (<span id="hud-blink-rate">0</span> bpm)</span>
+              <span class="telemetry-subtext">blinks (<span id="hud-blink-rate">0</span>/min)</span>
             </div>
           </div>
 
-          <!-- Card 6: Eye Closure Duration -->
           <div class="telemetry-card">
             <div class="telemetry-card-header">
-              <span class="telemetry-label">Closure Timer</span>
-              <span id="hud-closure-timer" class="telemetry-metric tabular-nums" style="font-size: 1rem; color: #38bdf8;">0.00s</span>
-            </div>
-            <div class="closure-progress-bar">
-              <div id="hud-closure-progress" class="closure-progress-fill progress-normal" style="width: 0%;"></div>
-            </div>
-            <div class="telemetry-subtext" style="margin-top: 0.15rem;">
-              Limit: <span id="hud-closure-threshold">${settings.drowsinessThresholdSec.toFixed(1)}s</span>
-            </div>
-          </div>
-
-          <!-- Card 7: Drowsiness Status (Wide 2-column cell) -->
-          <div class="telemetry-card telemetry-card-wide">
-            <div class="telemetry-card-header">
-              <span class="telemetry-label">Drowsiness Status</span>
-              <span id="hud-risk-badge" class="hud-badge badge-risk-normal">NORMAL</span>
+              <span class="telemetry-label">Head Gaze</span>
+              <span id="hud-head-pose-tag" class="hud-badge badge-safe">0° / 0°</span>
             </div>
             <div class="telemetry-value-row">
-              <span class="telemetry-subtext" id="hud-risk-subtext">Active driver alertness confirmed · Normal blinking verified</span>
+              <span class="telemetry-subtext" id="hud-gaze-desc">Forward Cone</span>
             </div>
           </div>
         </div>
 
-        <!-- Monitoring Telemetrics & Sound Bar -->
+        <!-- Warning Violation History Section (Requirement 5) -->
+        <div class="warning-history-section" id="warning-history-section">
+          <div class="warning-history-header">
+            <span class="warning-history-title">
+              ${ICONS.shieldAlert} Safety Violation History
+            </span>
+            <span class="history-count-badge" id="warning-history-count-badge">
+              ${appState.sessionViolations.length} Violations Logged
+            </span>
+          </div>
+          <div class="warning-history-list" id="warning-history-list">
+            ${
+              appState.sessionViolations.length === 0
+                ? `<div style="font-size: 0.8rem; color: var(--text-muted); padding: 0.5rem 0;">No active safety violations detected in this session. Safe driving maintained.</div>`
+                : appState.sessionViolations
+                    .map(
+                      (v) => `
+                    <div class="warning-item-row">
+                      <div class="warning-item-left">
+                        <span class="warning-item-time">${v.timeStr}</span>
+                        <span>${v.title}</span>
+                      </div>
+                      <span class="stage-badge stage-badge-${v.maxStage}">Stage ${v.maxStage}</span>
+                    </div>
+                  `
+                    )
+                    .join("")
+            }
+          </div>
+        </div>
+
+        <!-- Monitoring Controls & Telemetrics Bar -->
         <div class="monitoring-bar">
           <div class="session-live-clock">
             <span>Duration:</span>
-            <span class="clock-val" id="live-clock-val">${clockStr}</span>
+            <span class="clock-val tabular-nums" id="live-clock-val">${clockStr}</span>
           </div>
 
           <div class="control-group">
-            <button class="control-btn" id="live-settings-btn" title="Detection Settings">
+            <button class="control-btn" id="live-settings-btn" title="Safety Settings">
               ${ICONS.sliders}
               <span>Settings</span>
             </button>
@@ -367,25 +437,26 @@ class SingleScreenApp {
   }
 
   /* -------------------------------------------------------------------------
-     3. Session Summary View (Wide, Symmetrical & Balanced)
+     3. Session Summary View (Comprehensive Safety Report)
      ------------------------------------------------------------------------- */
   renderSummaryView() {
     const session = appState.lastSession || {
       durationSeconds: 0,
       drowsinessEventsCount: 0,
-      blinkCount: 0,
+      totalViolationsCount: 0,
+      violations: [],
       timestamp: Date.now(),
-      resultLabel: "No possible drowsiness events detected"
+      resultLabel: "No safety violations detected · Full compliance"
     };
 
-    const isWarn = session.drowsinessEventsCount > 0;
-    const resultClass = isWarn ? "summary-result-warn" : "summary-result-safe";
-    const resultIcon = isWarn ? ICONS.alertTriangle : ICONS.check;
+    const hasViolations = (session.totalViolationsCount || session.drowsinessEventsCount || 0) > 0;
+    const resultClass = hasViolations ? "summary-result-warn" : "summary-result-safe";
+    const resultIcon = hasViolations ? ICONS.alertTriangle : ICONS.check;
 
     return `
       <div class="summary-container">
-        <h1 class="app-title">Driver Drowsiness Detection</h1>
-        <p class="app-instruction">Session Summary</p>
+        <h1 class="app-title">Safety Session Summary</h1>
+        <p class="app-instruction">Completed In-Cabin Driver Monitoring Audit Report</p>
 
         <!-- Symmetrical Result Status Banner -->
         <div class="summary-result-banner ${resultClass}">
@@ -402,19 +473,47 @@ class SingleScreenApp {
           </div>
 
           <div class="summary-card-cell">
-            <span class="cell-label">Drowsiness Events</span>
-            <span class="cell-value" style="color: ${isWarn ? '#ef4444' : '#10b981'};">
-              ${session.drowsinessEventsCount}
+            <span class="cell-label">Total Safety Violations</span>
+            <span class="cell-value" style="color: ${hasViolations ? '#ef4444' : '#10b981'};">
+              ${session.totalViolationsCount || session.drowsinessEventsCount || 0}
             </span>
-            <span class="cell-subtext">${isWarn ? 'Prolonged eye closure detected' : 'Alert driver status maintained'}</span>
+            <span class="cell-subtext">${hasViolations ? 'Violations logged during trip' : 'Full safety compliance'}</span>
           </div>
 
           <div class="summary-card-cell">
-            <span class="cell-label">Date & Time</span>
-            <span class="cell-value" style="font-size: 1.25rem;">${formatDateTime(session.timestamp)}</span>
-            <span class="cell-subtext">Actual completed session</span>
+            <span class="cell-label">Completed Timestamp</span>
+            <span class="cell-value" style="font-size: 1.15rem;">${formatDateTime(session.timestamp)}</span>
+            <span class="cell-subtext">Local telemetry log</span>
           </div>
         </div>
+
+        <!-- Violations Breakdown (if any) -->
+        ${
+          session.violations && session.violations.length > 0
+            ? `
+              <div class="warning-history-section" style="width: 100%; margin-bottom: 2rem;">
+                <div class="warning-history-header">
+                  <span class="warning-history-title">${ICONS.shieldAlert} Session Violation Audit</span>
+                </div>
+                <div class="warning-history-list">
+                  ${session.violations
+                    .map(
+                      (v) => `
+                    <div class="warning-item-row">
+                      <div class="warning-item-left">
+                        <span class="warning-item-time">${v.timeStr}</span>
+                        <span>${v.title}</span>
+                      </div>
+                      <span class="stage-badge stage-badge-${v.maxStage}">Stage ${v.maxStage}</span>
+                    </div>
+                  `
+                    )
+                    .join("")}
+                </div>
+              </div>
+            `
+            : ""
+        }
 
         <!-- Action Buttons -->
         <div class="summary-actions-row">
@@ -430,7 +529,7 @@ class SingleScreenApp {
   }
 
   /* -------------------------------------------------------------------------
-     4. Session History View (Full-Width Responsive List)
+     4. Session History View
      ------------------------------------------------------------------------- */
   renderHistoryView() {
     const history = appState.getHistory();
@@ -441,7 +540,7 @@ class SingleScreenApp {
         <div class="history-empty-card">
           ${ICONS.history}
           <div class="empty-title">No Previous Sessions</div>
-          <p class="empty-desc">Completed monitoring sessions will automatically be recorded and displayed here.</p>
+          <p class="empty-desc">Completed safety monitoring trips will automatically be audited and displayed here.</p>
         </div>
       `;
     } else {
@@ -449,7 +548,8 @@ class SingleScreenApp {
         <div class="history-list">
           ${history
             .map((item) => {
-              const isWarn = item.drowsinessEventsCount > 0;
+              const count = item.totalViolationsCount || item.drowsinessEventsCount || 0;
+              const isWarn = count > 0;
               const badgeClass = isWarn ? "badge-warn" : "badge-safe";
               return `
                 <div class="history-item-card">
@@ -459,7 +559,8 @@ class SingleScreenApp {
                   </div>
                   <div class="history-item-metrics">
                     <span class="history-metric">Duration: <strong>${formatDurationText(item.durationSeconds)}</strong></span>
-                    <span class="history-metric">Possible drowsiness events: <strong style="color: ${isWarn ? '#ef4444' : '#10b981'};">${item.drowsinessEventsCount}</strong></span>
+                    <span class="history-metric">Safety violations: <strong style="color: ${isWarn ? '#ef4444' : '#10b981'};">${count}</strong></span>
+                    ${item.blinkCount ? `<span class="history-metric">Blinks: <strong>${item.blinkCount}</strong></span>` : ""}
                   </div>
                 </div>
               `;
@@ -471,11 +572,11 @@ class SingleScreenApp {
 
     return `
       <div class="history-container">
-        <h1 class="app-title">Session History</h1>
-        <p class="app-instruction">Review your past completed drowsiness monitoring sessions.</p>
+        <h1 class="app-title">Session Safety History</h1>
+        <p class="app-instruction">Review your past completed safety and drowsiness monitoring trips.</p>
 
         <div class="history-header-row">
-          <span class="history-count-badge">${history.length} ${history.length === 1 ? 'Session Recorded' : 'Sessions Recorded'}</span>
+          <span class="history-count-badge">${history.length} ${history.length === 1 ? 'Trip Recorded' : 'Trips Recorded'}</span>
         </div>
 
         ${listHtml}
@@ -497,7 +598,7 @@ class SingleScreenApp {
   }
 
   /* -------------------------------------------------------------------------
-     5. Settings & Accuracy Calibration Modal
+     5. Safety Settings & Calibration Modal
      ------------------------------------------------------------------------- */
   renderSettingsModal() {
     if (!this.showSettingsModal) return "";
@@ -510,53 +611,83 @@ class SingleScreenApp {
           <div class="settings-header">
             <div class="settings-title">
               ${ICONS.sliders}
-              <span>Detection Settings & Accuracy Calibration</span>
+              <span>Safety Detection Settings & Calibration</span>
             </div>
             <button class="icon-btn" id="modal-close-settings-x" style="height: 32px; padding: 0 0.5rem;">✕</button>
           </div>
 
-          <!-- Section 1: Interactive 3-Second Calibration -->
+          <!-- Section 1: Seat Belt Settings -->
           <div class="settings-section">
-            <span class="settings-section-title">${ICONS.crosshair} Personalized Eye Calibration</span>
-            <div class="calibration-card-box">
-              <p class="setting-desc" style="color: var(--text-secondary);">
-                Calibrate to your personal open-eye baseline, accommodating glasses, eye shape, lighting, and camera distance.
-              </p>
-              ${
-                this.isCalibrating
-                  ? `
-                    <div style="font-weight: 700; color: #38bdf8; font-size: 0.85rem;">
-                      Looking at camera normally... Calibrating (${this.calibrationProgress}%)
-                    </div>
-                    <div class="calibration-progress-container">
-                      <div class="calibration-progress-fill" style="width: ${this.calibrationProgress}%;"></div>
-                    </div>
-                  `
-                  : `
-                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
-                      <button class="btn btn-primary" id="start-calibration-action-btn" style="padding: 0.5rem 1rem; font-size: 0.825rem;">
-                        ${ICONS.eye} Run 3s Calibration
-                      </button>
-                      <span id="calibration-feedback-txt" style="font-size: 0.775rem; color: #38bdf8; font-weight: 600;">
-                        ${this.calibrationMessage || (settings.calibratedBaselineEAR ? `Calibrated: EAR ${settings.calibratedBaselineEAR.toFixed(2)}` : 'Default uncalibrated profile')}
-                      </span>
-                    </div>
-                  `
-              }
+            <span class="settings-section-title">${ICONS.seatbelt} Seat Belt Detection</span>
+            <div class="setting-row">
+              <div class="setting-row-top">
+                <span class="setting-name">Unfastened Warning Delay</span>
+                <span class="setting-val-tag" id="setting-seatbelt-sec-display">${settings.seatBeltWarningSec.toFixed(1)}s</span>
+              </div>
+              <p class="setting-desc">Continuous duration seat belt remains unbuckled before triggering Stage 1 Initial Warning.</p>
+              <input
+                type="range"
+                min="2.0"
+                max="10.0"
+                step="0.5"
+                value="${settings.seatBeltWarningSec}"
+                class="setting-slider"
+                id="setting-seatbelt-slider"
+              />
             </div>
           </div>
 
-          <!-- Section 2: Eye Aspect Ratio (EAR) Threshold -->
+          <!-- Section 2: Mobile Phone Settings -->
           <div class="settings-section">
-            <span class="settings-section-title">${ICONS.eye} Eye Closure Sensitivity (EAR)</span>
+            <span class="settings-section-title">${ICONS.phone} Mobile Phone Detection</span>
             <div class="setting-row">
               <div class="setting-row-top">
-                <span class="setting-name">Closure Threshold</span>
+                <span class="setting-name">Phone Use Warning Delay</span>
+                <span class="setting-val-tag" id="setting-phone-sec-display">${settings.phoneWarningSec.toFixed(1)}s</span>
+              </div>
+              <p class="setting-desc">Continuous duration active phone holding is detected before triggering warning sequence.</p>
+              <input
+                type="range"
+                min="1.0"
+                max="8.0"
+                step="0.5"
+                value="${settings.phoneWarningSec}"
+                class="setting-slider"
+                id="setting-phone-slider"
+              />
+            </div>
+          </div>
+
+          <!-- Section 3: Driver Attention Settings -->
+          <div class="settings-section">
+            <span class="settings-section-title">${ICONS.attention} Driver Attention Detection</span>
+            <div class="setting-row">
+              <div class="setting-row-top">
+                <span class="setting-name">Looking Away Threshold</span>
+                <span class="setting-val-tag" id="setting-distraction-sec-display">${settings.distractionWarningSec.toFixed(0)}s</span>
+              </div>
+              <p class="setting-desc">Allowed duration of looking away from the forward road cone before warning sequence initiates (default 10s).</p>
+              <input
+                type="range"
+                min="5.0"
+                max="15.0"
+                step="1.0"
+                value="${settings.distractionWarningSec}"
+                class="setting-slider"
+                id="setting-distraction-slider"
+              />
+            </div>
+          </div>
+
+          <!-- Section 4: Eye Aspect Ratio & Drowsiness -->
+          <div class="settings-section">
+            <span class="settings-section-title">${ICONS.eye} Drowsiness & Calibration</span>
+            <div class="setting-row">
+              <div class="setting-row-top">
+                <span class="setting-name">Closure EAR Threshold</span>
                 <span class="setting-val-tag" id="setting-ear-val-display">${settings.earThreshold.toFixed(2)}</span>
               </div>
-              <p class="setting-desc">
-                Eye Aspect Ratio below which eyes are classified as closed. Lower values accommodate glasses and narrower eyes; higher values trigger sooner.
-              </p>
+              <p class="setting-desc">Eye Aspect Ratio threshold below which eyes are classified as closed.</p>
               <input
                 type="range"
                 min="0.16"
@@ -569,20 +700,15 @@ class SingleScreenApp {
               <div class="preset-btn-group">
                 <button class="preset-chip ${settings.earThreshold === 0.18 ? 'active' : ''}" data-ear="0.18">Spectacles (0.18)</button>
                 <button class="preset-chip ${settings.earThreshold === 0.21 ? 'active' : ''}" data-ear="0.21">Standard (0.21)</button>
-                <button class="preset-chip ${settings.earThreshold === 0.24 ? 'active' : ''}" data-ear="0.24">High Sensitivity (0.24)</button>
+                <button class="preset-chip ${settings.earThreshold === 0.24 ? 'active' : ''}" data-ear="0.24">Sensitive (0.24)</button>
               </div>
             </div>
-          </div>
 
-          <!-- Section 3: Time Windows & Cooldown -->
-          <div class="settings-section">
-            <span class="settings-section-title">${ICONS.bell} Timing & Siren Cooldown</span>
             <div class="setting-row">
               <div class="setting-row-top">
-                <span class="setting-name">Drowsiness Trigger Duration</span>
+                <span class="setting-name">Prolonged Closure Trigger</span>
                 <span class="setting-val-tag" id="setting-drowsy-sec-display">${settings.drowsinessThresholdSec.toFixed(1)}s</span>
               </div>
-              <p class="setting-desc">Continuous closure duration required before triggering the Emergency Siren. Normal blinks (< 0.4s) never sound the siren.</p>
               <input
                 type="range"
                 min="1.0"
@@ -594,12 +720,27 @@ class SingleScreenApp {
               />
             </div>
 
+            <div class="calibration-card-box">
+              <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+                <button class="btn btn-primary" id="start-calibration-action-btn" style="padding: 0.45rem 0.85rem; font-size: 0.8rem;">
+                  ${ICONS.crosshair} Run 3s Eye Calibration
+                </button>
+                <span id="calibration-feedback-txt" style="font-size: 0.775rem; color: #38bdf8; font-weight: 600;">
+                  ${settings.calibratedBaselineEAR ? `Calibrated: EAR ${settings.calibratedBaselineEAR.toFixed(2)}` : 'Standard profile'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 5: Cooldown -->
+          <div class="settings-section">
+            <span class="settings-section-title">${ICONS.bell} Cooldown Window</span>
             <div class="setting-row">
               <div class="setting-row-top">
-                <span class="setting-name">Alarm Cooldown Period</span>
+                <span class="setting-name">Alarm Rest Period</span>
                 <span class="setting-val-tag" id="setting-cooldown-sec-display">${settings.alarmCooldownSec.toFixed(1)}s</span>
               </div>
-              <p class="setting-desc">Minimum rest period after an alarm stops before a new warning sound can re-trigger, preventing alarm stutter.</p>
+              <p class="setting-desc">Cooldown delay after an alarm clears before new warnings re-trigger.</p>
               <input
                 type="range"
                 min="1.0"
@@ -610,12 +751,6 @@ class SingleScreenApp {
                 id="setting-cooldown-sec-slider"
               />
             </div>
-          </div>
-
-          <!-- Section 4: Accuracy Validation Notice -->
-          <div class="tech-info-note">
-            ${ICONS.info}
-            <strong>Accuracy Validation Note:</strong> Detection leverages MediaPipe Face Landmarker (478 3D landmarks) with Soukupová & Čech (2016) Eye Aspect Ratio and neural blendshapes. While robust to glasses and head tilt, no computer-vision model achieves 100% accuracy under all extreme lighting conditions. Always rest when feeling tired.
           </div>
 
           <div class="modal-btn-row">
@@ -640,7 +775,7 @@ class SingleScreenApp {
             ${ICONS.trash}
           </div>
           <div class="modal-title">Delete Session History?</div>
-          <p class="modal-desc">Are you sure you want to delete all saved session records? This action cannot be undone.</p>
+          <p class="modal-desc">Are you sure you want to delete all saved safety session records?</p>
           <div class="modal-btn-row">
             <button class="btn btn-secondary" id="modal-cancel-btn">Cancel</button>
             <button class="btn btn-danger" id="modal-confirm-delete-btn">Confirm Delete</button>
@@ -651,8 +786,11 @@ class SingleScreenApp {
   }
 
   getStatusClass() {
+    const stage = appState.telemetry.warningStage;
+    if (stage === 3) return "status-drowsy-red";
+    if (stage === 2) return "status-drowsy-red";
+    if (stage === 1) return "status-warn";
     if (appState.status === "ALERT") return "status-alert-green";
-    if (appState.status === "DROWSY") return "status-drowsy-red";
     if (appState.status === "NO_FACE") return "status-noface-grey";
     if (appState.status === "CAMERA_UNAVAILABLE") return "status-unavailable-grey";
     return "status-noface-grey";
@@ -662,20 +800,14 @@ class SingleScreenApp {
     try {
       if (!document.fullscreenElement) {
         if (document.documentElement.requestFullscreen) {
-          document.documentElement.requestFullscreen().catch((err) => {
-            console.warn("Fullscreen request error:", err);
-          });
+          document.documentElement.requestFullscreen().catch(() => {});
         }
       } else {
         if (document.exitFullscreen) {
-          document.exitFullscreen().catch((err) => {
-            console.warn("Exit fullscreen error:", err);
-          });
+          document.exitFullscreen().catch(() => {});
         }
       }
-    } catch (e) {
-      console.warn("Fullscreen toggle error:", e);
-    }
+    } catch (e) {}
   }
 
   updateFullscreenButton() {
@@ -691,117 +823,252 @@ class SingleScreenApp {
 
   /* -------------------------------------------------------------------------
      FAST-PATH DOM SYNCHRONIZATION (60 FPS Telemetry Update)
-     Updates dashboard DOM elements directly without re-rendering HTML
+     Updates all 4 safety cards, status indicators, and warning stages directly
      ------------------------------------------------------------------------- */
   updateTelemetryUI(telemetry) {
     if (!appState.isMonitoring) return;
 
-    // 1. Face Detection Status
-    const faceEl = document.getElementById("hud-face-status");
-    if (faceEl) {
-      const active = telemetry.faceDetected;
-      faceEl.textContent = active ? "ACTIVE" : "NOT DETECTED";
-      faceEl.className = `hud-badge ${active ? "badge-safe" : "badge-neutral"}`;
+    // 1. Drowsiness Card
+    const cardDrowsy = document.getElementById("card-drowsiness");
+    const indDrowsy = document.getElementById("card-indicator-drowsiness");
+    const statDrowsy = document.getElementById("card-status-drowsiness");
+    const earMetric = document.getElementById("card-metric-ear");
+    const closureMetric = document.getElementById("card-metric-closure");
+
+    if (cardDrowsy && indDrowsy && statDrowsy) {
+      const risk = telemetry.drowsinessRisk;
+      if (risk === "HIGH_RISK") {
+        indDrowsy.className = "safety-indicator indicator-red";
+        statDrowsy.textContent = "DROWSY / MICROSLEEP";
+        statDrowsy.style.color = "#ef4444";
+        cardDrowsy.className = "safety-card card-violation";
+      } else if (risk === "WARNING") {
+        indDrowsy.className = "safety-indicator indicator-yellow";
+        statDrowsy.textContent = "EYES CLOSING";
+        statDrowsy.style.color = "#f59e0b";
+        cardDrowsy.className = "safety-card card-uncertain";
+      } else {
+        indDrowsy.className = "safety-indicator indicator-green";
+        statDrowsy.textContent = telemetry.faceDetected ? "ALERT" : "SEARCHING";
+        statDrowsy.style.color = "var(--text-primary)";
+        cardDrowsy.className = "safety-card";
+      }
+      if (earMetric) earMetric.textContent = telemetry.avgEAR.toFixed(2);
+      if (closureMetric) closureMetric.textContent = `${telemetry.closureDurationSec.toFixed(2)}s`;
     }
 
-    // 2. Eye Tracking Status
-    const trackEl = document.getElementById("hud-track-status");
-    if (trackEl) {
-      trackEl.textContent = telemetry.eyeTrackingStatus;
-      trackEl.className = `hud-badge ${telemetry.eyeTrackingStatus === "ACTIVE" ? "badge-safe" : telemetry.eyeTrackingStatus === "CALIBRATING" ? "badge-warn" : "badge-neutral"}`;
+    // 2. Seat Belt Card
+    const cardSeatbelt = document.getElementById("card-seatbelt");
+    const indSeatbelt = document.getElementById("card-indicator-seatbelt");
+    const statSeatbelt = document.getElementById("card-status-seatbelt");
+    const metricSeatbelt = document.getElementById("card-metric-seatbelt");
+
+    if (cardSeatbelt && indSeatbelt && statSeatbelt) {
+      const s = telemetry.seatBeltStatus;
+      if (s === "DETECTED") {
+        indSeatbelt.className = "safety-indicator indicator-green";
+        statSeatbelt.textContent = "FASTENED";
+        statSeatbelt.style.color = "#10b981";
+        cardSeatbelt.className = "safety-card";
+        if (metricSeatbelt) metricSeatbelt.textContent = `Fastened · Conf: ${telemetry.seatBeltConfidence}%`;
+      } else if (s === "DETECTION UNCERTAIN") {
+        indSeatbelt.className = "safety-indicator indicator-yellow";
+        statSeatbelt.textContent = "UNCERTAIN";
+        statSeatbelt.style.color = "#f59e0b";
+        cardSeatbelt.className = "safety-card card-uncertain";
+        if (metricSeatbelt) metricSeatbelt.textContent = telemetry.seatBeltReason;
+      } else {
+        indSeatbelt.className = "safety-indicator indicator-red";
+        statSeatbelt.textContent = "NOT FASTENED";
+        statSeatbelt.style.color = "#ef4444";
+        cardSeatbelt.className = "safety-card card-violation";
+        if (metricSeatbelt) metricSeatbelt.textContent = `Unfastened: ${telemetry.seatBeltUnwornSec.toFixed(1)}s / ${appState.settings.seatBeltWarningSec.toFixed(0)}s`;
+      }
     }
 
-    // 3. Left Eye State & Live EAR
+    // 3. Mobile Phone Card
+    const cardPhone = document.getElementById("card-phone");
+    const indPhone = document.getElementById("card-indicator-phone");
+    const statPhone = document.getElementById("card-status-phone");
+    const metricPhone = document.getElementById("card-metric-phone");
+
+    if (cardPhone && indPhone && statPhone) {
+      const p = telemetry.phoneStatus;
+      if (p === "PHONE DETECTED") {
+        indPhone.className = "safety-indicator indicator-red";
+        statPhone.textContent = "PHONE IN USE";
+        statPhone.style.color = "#ef4444";
+        cardPhone.className = "safety-card card-violation";
+        if (metricPhone) metricPhone.textContent = `Active Use: ${telemetry.phoneUsageSec.toFixed(1)}s / ${appState.settings.phoneWarningSec.toFixed(0)}s`;
+      } else if (p === "POSSIBLE PHONE USE") {
+        indPhone.className = "safety-indicator indicator-yellow";
+        statPhone.textContent = "POSSIBLE USE";
+        statPhone.style.color = "#f59e0b";
+        cardPhone.className = "safety-card card-uncertain";
+        if (metricPhone) metricPhone.textContent = `Possible Device (${telemetry.phoneConfidence}%)`;
+      } else {
+        indPhone.className = "safety-indicator indicator-green";
+        statPhone.textContent = "HANDS-FREE";
+        statPhone.style.color = "#10b981";
+        cardPhone.className = "safety-card";
+        if (metricPhone) metricPhone.textContent = "Hands-Free · No Device";
+      }
+    }
+
+    // 4. Driver Attention Card
+    const cardAttn = document.getElementById("card-attention");
+    const indAttn = document.getElementById("card-indicator-attention");
+    const statAttn = document.getElementById("card-status-attention");
+    const metricAttn = document.getElementById("card-metric-attention");
+
+    if (cardAttn && indAttn && statAttn) {
+      const a = telemetry.attentionStatus;
+      if (a === "DISTRACTED") {
+        const isViol = telemetry.distractedSec >= appState.settings.distractionWarningSec;
+        indAttn.className = `safety-indicator ${isViol ? "indicator-red" : "indicator-yellow"}`;
+        statAttn.textContent = isViol ? "DISTRACTED" : "GAZE AWAY";
+        statAttn.style.color = isViol ? "#ef4444" : "#f59e0b";
+        cardAttn.className = `safety-card ${isViol ? "card-violation" : "card-uncertain"}`;
+        if (metricAttn) metricAttn.textContent = `Away: ${telemetry.distractedSec.toFixed(1)}s / ${appState.settings.distractionWarningSec.toFixed(0)}s (Yaw ${telemetry.headYaw}°)`;
+      } else if (a === "FOCUSED") {
+        indAttn.className = "safety-indicator indicator-green";
+        statAttn.textContent = "ROAD FOCUSED";
+        statAttn.style.color = "#10b981";
+        cardAttn.className = "safety-card";
+        if (metricAttn) metricAttn.textContent = `Forward View (Yaw ${telemetry.headYaw}°, Pitch ${telemetry.headPitch}°)`;
+      } else {
+        indAttn.className = "safety-indicator indicator-yellow";
+        statAttn.textContent = a === "FACE NOT DETECTED" ? "NO FACE" : "UNCERTAIN";
+        statAttn.style.color = "#f59e0b";
+        cardAttn.className = "safety-card card-uncertain";
+        if (metricAttn) metricAttn.textContent = telemetry.attentionReason;
+      }
+    }
+
+    // Eye Sub-Dashboard
     const leftStateEl = document.getElementById("hud-left-state");
     const leftEarEl = document.getElementById("hud-left-ear");
     if (leftStateEl) {
       leftStateEl.textContent = telemetry.leftEyeState;
       leftStateEl.className = `hud-badge badge-eye-${telemetry.leftEyeState.toLowerCase()}`;
     }
-    if (leftEarEl) {
-      leftEarEl.textContent = telemetry.leftEAR.toFixed(2);
-    }
+    if (leftEarEl) leftEarEl.textContent = telemetry.leftEAR.toFixed(2);
 
-    // 4. Right Eye State & Live EAR
     const rightStateEl = document.getElementById("hud-right-state");
     const rightEarEl = document.getElementById("hud-right-ear");
     if (rightStateEl) {
       rightStateEl.textContent = telemetry.rightEyeState;
       rightStateEl.className = `hud-badge badge-eye-${telemetry.rightEyeState.toLowerCase()}`;
     }
-    if (rightEarEl) {
-      rightEarEl.textContent = telemetry.rightEAR.toFixed(2);
-    }
+    if (rightEarEl) rightEarEl.textContent = telemetry.rightEAR.toFixed(2);
 
-    // 5. Blink Detection
     const blinkPill = document.getElementById("hud-blink-pill");
     const blinkCountEl = document.getElementById("hud-blink-count");
     const blinkRateEl = document.getElementById("hud-blink-rate");
     if (blinkPill) {
-      if (telemetry.isBlinkingLive) {
-        blinkPill.classList.add("blink-flash");
-      } else {
-        blinkPill.classList.remove("blink-flash");
-      }
+      if (telemetry.isBlinkingLive) blinkPill.classList.add("blink-flash");
+      else blinkPill.classList.remove("blink-flash");
     }
     if (blinkCountEl) blinkCountEl.textContent = telemetry.blinkCount;
     if (blinkRateEl) blinkRateEl.textContent = telemetry.blinkRate;
 
-    // 6. Eye Closure Duration & Dynamic Progress Bar
-    const closureTimerEl = document.getElementById("hud-closure-timer");
-    const closureProgressEl = document.getElementById("hud-closure-progress");
-    if (closureTimerEl) {
-      closureTimerEl.textContent = `${telemetry.closureDurationSec.toFixed(2)}s`;
+    const headPoseTag = document.getElementById("hud-head-pose-tag");
+    const gazeDesc = document.getElementById("hud-gaze-desc");
+    if (headPoseTag) {
+      headPoseTag.textContent = `${telemetry.headYaw}° / ${telemetry.headPitch}°`;
+      headPoseTag.className = `hud-badge ${Math.abs(telemetry.headYaw) > 22 ? 'badge-warn' : 'badge-safe'}`;
     }
-    if (closureProgressEl) {
-      const maxSec = appState.settings.drowsinessThresholdSec || 2.0;
-      const pct = Math.min(100, Math.round((telemetry.closureDurationSec / maxSec) * 100));
-      closureProgressEl.style.width = `${pct}%`;
-
-      if (pct >= 100) {
-        closureProgressEl.className = "closure-progress-fill progress-danger";
-      } else if (pct >= 30) {
-        closureProgressEl.className = "closure-progress-fill progress-warn";
-      } else {
-        closureProgressEl.className = "closure-progress-fill progress-normal";
-      }
+    if (gazeDesc) {
+      gazeDesc.textContent = Math.abs(telemetry.headYaw) > 22 ? "Looking Sideways" : "Forward Road View";
     }
 
-    // 7. Drowsiness Status & Subtext
-    const riskBadge = document.getElementById("hud-risk-badge");
-    const riskSubtext = document.getElementById("hud-risk-subtext");
-    if (riskBadge) {
-      const risk = telemetry.drowsinessRisk;
-      riskBadge.textContent = risk === "HIGH_RISK" ? "HIGH RISK" : risk;
-      riskBadge.className = `hud-badge badge-risk-${risk.toLowerCase()}`;
-
-      if (riskSubtext) {
-        if (risk === "HIGH_RISK") {
-          riskSubtext.textContent = "EMERGENCY: Prolonged eye closure active! Siren engaged.";
-        } else if (risk === "WARNING") {
-          riskSubtext.textContent = "Warning: Eye closure duration approaching threshold...";
-        } else {
-          riskSubtext.textContent = "Active driver alertness confirmed · Normal blinking verified";
-        }
-      }
-    }
-
-    // Update banner text
+    // Three-Stage Warning System Visual Sync
+    const stage = telemetry.warningStage;
     const banner = document.getElementById("main-status-banner");
     const bannerText = document.getElementById("status-text");
+    const previewWrapper = document.getElementById("camera-preview-wrapper");
+    const appContainer = document.getElementById("app-container");
+    const emergencyContainer = document.getElementById("emergency-overlay-container");
+
+    // Stage 1: Flash indicator red 3 times
     if (banner && bannerText) {
-      banner.className = `status-banner ${this.getStatusClass()}`;
-      bannerText.textContent = appState.statusText;
+      if (stage === 1) {
+        banner.className = "status-banner status-drowsy-red stage-1-flash";
+        bannerText.textContent = telemetry.warningMessage || "Stage 1 Initial Warning";
+      } else if (stage === 2) {
+        banner.className = "status-banner status-drowsy-red";
+        bannerText.textContent = telemetry.warningMessage || "Stage 2 Critical Warning";
+      } else if (stage === 3) {
+        banner.className = "status-banner status-drowsy-red";
+        bannerText.textContent = telemetry.warningMessage || "Stage 3 Emergency Alarm";
+      } else {
+        banner.className = `status-banner ${this.getStatusClass()}`;
+        bannerText.textContent = appState.statusText || "All safety checks normal.";
+      }
     }
 
-    // Camera border glow
-    const wrapper = document.getElementById("camera-preview-wrapper");
-    if (wrapper) {
-      if (appState.activeWarning) {
-        wrapper.classList.add("alert-flashing");
+    // Stage 2: Flash entire screen red
+    if (appContainer) {
+      if (stage === 2) {
+        appContainer.classList.add("critical-screen-flash");
       } else {
-        wrapper.classList.remove("alert-flashing");
+        appContainer.classList.remove("critical-screen-flash");
       }
+    }
+
+    if (previewWrapper) {
+      if (stage >= 2 || appState.activeWarning) {
+        previewWrapper.classList.add("alert-flashing");
+      } else {
+        previewWrapper.classList.remove("alert-flashing");
+      }
+    }
+
+    // Stage 3: Full-screen Emergency Warning Modal
+    if (emergencyContainer) {
+      if (stage === 3) {
+        if (!document.getElementById("emergency-modal-box")) {
+          emergencyContainer.innerHTML = `
+            <div class="emergency-fullscreen-overlay" id="emergency-modal-box">
+              <div class="emergency-box">
+                <div class="emergency-icon-wrap">
+                  ${ICONS.alertTriangle}
+                </div>
+                <div class="emergency-title">EMERGENCY ALARM ACTIVATED</div>
+                <div class="emergency-desc">${telemetry.warningMessage || "CRITICAL SAFETY VIOLATION DETECTED"}</div>
+                <div style="font-size: 0.85rem; color: #ef4444; font-weight: 700; letter-spacing: 0.05em;">
+                  SIREN ENGAGED · CORRECT VIOLATION IMMEDIATELY
+                </div>
+              </div>
+            </div>
+          `;
+        }
+      } else {
+        emergencyContainer.innerHTML = "";
+      }
+    }
+
+    // Update Warning History List live
+    const historyBadge = document.getElementById("warning-history-count-badge");
+    const historyList = document.getElementById("warning-history-list");
+    if (historyBadge) {
+      historyBadge.textContent = `${appState.sessionViolations.length} Violations Logged`;
+    }
+    if (historyList && appState.sessionViolations.length > 0) {
+      historyList.innerHTML = appState.sessionViolations
+        .slice(0, 10)
+        .map(
+          (v) => `
+          <div class="warning-item-row">
+            <div class="warning-item-left">
+              <span class="warning-item-time">${v.timeStr}</span>
+              <span>${v.title}</span>
+            </div>
+            <span class="stage-badge stage-badge-${v.maxStage}">Stage ${v.maxStage}</span>
+          </div>
+        `
+        )
+        .join("");
     }
   }
 
@@ -822,13 +1089,9 @@ class SingleScreenApp {
      Event Binding
      ------------------------------------------------------------------------- */
   bindEvents() {
-    // Fullscreen API toggle button
     const fsBtn = document.getElementById("fullscreen-toggle-btn");
-    if (fsBtn) {
-      fsBtn.onclick = () => this.toggleFullscreen();
-    }
+    if (fsBtn) fsBtn.onclick = () => this.toggleFullscreen();
 
-    // Theme toggle button
     const themeBtn = document.getElementById("theme-toggle-btn");
     if (themeBtn) {
       themeBtn.onclick = () => {
@@ -840,7 +1103,6 @@ class SingleScreenApp {
       };
     }
 
-    // Header Settings button
     const headerSettingsBtn = document.getElementById("header-settings-btn");
     if (headerSettingsBtn) {
       headerSettingsBtn.onclick = () => {
@@ -849,7 +1111,6 @@ class SingleScreenApp {
       };
     }
 
-    // Main screen Calibration profile button
     const openCalibBtn = document.getElementById("open-calibration-btn");
     if (openCalibBtn) {
       openCalibBtn.onclick = () => {
@@ -858,7 +1119,6 @@ class SingleScreenApp {
       };
     }
 
-    // Live Monitoring Settings button
     const liveSettingsBtn = document.getElementById("live-settings-btn");
     if (liveSettingsBtn) {
       liveSettingsBtn.onclick = () => {
@@ -867,37 +1127,23 @@ class SingleScreenApp {
       };
     }
 
-    // Header History button
     const headerHistBtn = document.getElementById("header-history-btn");
     if (headerHistBtn) {
       headerHistBtn.onclick = () => appState.setView("history");
     }
 
-    // Start Monitoring button (Main view)
     const startBtn = document.getElementById("start-monitoring-btn");
-    if (startBtn) {
-      startBtn.onclick = () => this.startMonitoringFlow();
-    }
+    if (startBtn) startBtn.onclick = () => this.startMonitoringFlow();
 
-    // Start New Session button (Summary view)
     const startNewBtn = document.getElementById("start-new-session-btn");
-    if (startNewBtn) {
-      startNewBtn.onclick = () => this.startMonitoringFlow();
-    }
+    if (startNewBtn) startNewBtn.onclick = () => this.startMonitoringFlow();
 
-    // View History button (Summary view)
     const viewHistBtn = document.getElementById("view-history-btn");
-    if (viewHistBtn) {
-      viewHistBtn.onclick = () => appState.setView("history");
-    }
+    if (viewHistBtn) viewHistBtn.onclick = () => appState.setView("history");
 
-    // Stop Monitoring button
     const stopBtn = document.getElementById("stop-monitoring-btn");
-    if (stopBtn) {
-      stopBtn.onclick = () => this.stopMonitoringFlow();
-    }
+    if (stopBtn) stopBtn.onclick = () => this.stopMonitoringFlow();
 
-    // History Back button
     const histBackBtn = document.getElementById("history-back-btn");
     if (histBackBtn) {
       histBackBtn.onclick = () => {
@@ -906,7 +1152,6 @@ class SingleScreenApp {
       };
     }
 
-    // Clear History trigger
     const clearHistBtn = document.getElementById("clear-history-trigger-btn");
     if (clearHistBtn) {
       clearHistBtn.onclick = () => {
@@ -915,7 +1160,6 @@ class SingleScreenApp {
       };
     }
 
-    // Modal Cancel (Delete)
     const modalCancelBtn = document.getElementById("modal-cancel-btn");
     if (modalCancelBtn) {
       modalCancelBtn.onclick = () => {
@@ -924,7 +1168,6 @@ class SingleScreenApp {
       };
     }
 
-    // Modal Backdrop click (Delete)
     const deleteBackdrop = document.getElementById("delete-modal-backdrop");
     if (deleteBackdrop) {
       deleteBackdrop.onclick = (e) => {
@@ -935,7 +1178,6 @@ class SingleScreenApp {
       };
     }
 
-    // Modal Confirm Delete
     const modalConfirmBtn = document.getElementById("modal-confirm-delete-btn");
     if (modalConfirmBtn) {
       modalConfirmBtn.onclick = () => {
@@ -945,7 +1187,6 @@ class SingleScreenApp {
       };
     }
 
-    // Audio Mute toggle (Main view)
     const muteBtn = document.getElementById("mute-toggle-btn");
     if (muteBtn) {
       muteBtn.onclick = () => {
@@ -954,7 +1195,6 @@ class SingleScreenApp {
       };
     }
 
-    // Audio Mute toggle (Live monitoring view)
     const liveMuteBtn = document.getElementById("live-mute-toggle-btn");
     if (liveMuteBtn) {
       liveMuteBtn.onclick = () => {
@@ -966,19 +1206,12 @@ class SingleScreenApp {
       };
     }
 
-    // Test Sound button (Main view)
     const testSoundBtn = document.getElementById("test-sound-btn");
-    if (testSoundBtn) {
-      testSoundBtn.onclick = () => soundManager.testAlertSound();
-    }
+    if (testSoundBtn) testSoundBtn.onclick = () => soundManager.testAlertSound();
 
-    // Test Sound button (Live monitoring view)
     const liveTestSoundBtn = document.getElementById("live-test-sound-btn");
-    if (liveTestSoundBtn) {
-      liveTestSoundBtn.onclick = () => soundManager.testAlertSound();
-    }
+    if (liveTestSoundBtn) liveTestSoundBtn.onclick = () => soundManager.testAlertSound();
 
-    // Volume Slider (Main view)
     const volSlider = document.getElementById("volume-slider");
     const volValDisplay = document.getElementById("volume-val-display");
     if (volSlider && volValDisplay) {
@@ -989,14 +1222,12 @@ class SingleScreenApp {
       };
     }
 
-    // Bind Settings Modal Events
     this.bindSettingsEvents();
   }
 
   bindSettingsEvents() {
     if (!this.showSettingsModal) return;
 
-    // Close Settings via X or Done
     const closeX = document.getElementById("modal-close-settings-x");
     const closeDone = document.getElementById("modal-close-settings-btn");
     const closeHandler = () => {
@@ -1006,11 +1237,43 @@ class SingleScreenApp {
     if (closeX) closeX.onclick = closeHandler;
     if (closeDone) closeDone.onclick = closeHandler;
 
-    // Backdrop click
     const backdrop = document.getElementById("settings-modal-backdrop");
     if (backdrop) {
       backdrop.onclick = (e) => {
         if (e.target === backdrop) closeHandler();
+      };
+    }
+
+    // Seat belt slider
+    const seatbeltSlider = document.getElementById("setting-seatbelt-slider");
+    const seatbeltDisplay = document.getElementById("setting-seatbelt-sec-display");
+    if (seatbeltSlider && seatbeltDisplay) {
+      seatbeltSlider.oninput = (e) => {
+        const val = parseFloat(e.target.value);
+        appState.saveSettings({ seatBeltWarningSec: val });
+        seatbeltDisplay.textContent = `${val.toFixed(1)}s`;
+      };
+    }
+
+    // Phone slider
+    const phoneSlider = document.getElementById("setting-phone-slider");
+    const phoneDisplay = document.getElementById("setting-phone-sec-display");
+    if (phoneSlider && phoneDisplay) {
+      phoneSlider.oninput = (e) => {
+        const val = parseFloat(e.target.value);
+        appState.saveSettings({ phoneWarningSec: val });
+        phoneDisplay.textContent = `${val.toFixed(1)}s`;
+      };
+    }
+
+    // Distraction slider (default 10s)
+    const distSlider = document.getElementById("setting-distraction-slider");
+    const distDisplay = document.getElementById("setting-distraction-sec-display");
+    if (distSlider && distDisplay) {
+      distSlider.oninput = (e) => {
+        const val = parseFloat(e.target.value);
+        appState.saveSettings({ distractionWarningSec: val });
+        distDisplay.textContent = `${val.toFixed(0)}s`;
       };
     }
 
@@ -1038,7 +1301,7 @@ class SingleScreenApp {
       };
     });
 
-    // Drowsiness Duration Slider
+    // Drowsiness Slider
     const drowsySlider = document.getElementById("setting-drowsy-sec-slider");
     const drowsyDisplay = document.getElementById("setting-drowsy-sec-display");
     if (drowsySlider && drowsyDisplay) {
@@ -1075,10 +1338,9 @@ class SingleScreenApp {
     if (calibBtn) {
       calibBtn.onclick = () => {
         if (!appState.isMonitoring) {
-          // If camera is not running, prompt user to start monitoring first
           const feedback = document.getElementById("calibration-feedback-txt");
           if (feedback) {
-            feedback.textContent = "Start monitoring first to run live eye calibration.";
+            feedback.textContent = "Start monitoring first to calibrate.";
             feedback.style.color = "#f59e0b";
           }
           return;
@@ -1131,7 +1393,6 @@ function bootstrapApp() {
   const app = new SingleScreenApp();
   app.init();
 
-  // Safely stop session on unexpected window close
   window.addEventListener("beforeunload", () => {
     if (appState.isMonitoring) {
       visionEngine.stopCamera();
