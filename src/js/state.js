@@ -4,6 +4,16 @@
    ========================================================================== */
 
 const STORAGE_KEY_HISTORY = "drowsiness_session_history";
+const STORAGE_KEY_SETTINGS = "drowsiness_detection_settings";
+
+export const DEFAULT_SETTINGS = {
+  earThreshold: 0.21,
+  drowsinessThresholdSec: 2.0,
+  alarmCooldownSec: 3.0,
+  eyeClosureWarningSec: 0.5,
+  calibratedBaselineEAR: null,
+  useBlendshapes: true
+};
 
 class StateManager {
   constructor() {
@@ -16,14 +26,68 @@ class StateManager {
     this.cameraError = null;
     this.activeWarning = false;
 
+    // Load persisted detection settings
+    this.settings = this.loadSettings();
+
     // Active session timing and event tracking
     this.sessionStartTime = null;
     this.sessionDurationSec = 0;
     this.drowsinessEventsCount = 0;
     this.lastSession = null;
 
+    // Real-Time Computer-Vision Telemetry
+    this.telemetry = {
+      faceDetected: false,
+      eyeTrackingStatus: "STANDBY", // "ACTIVE" | "LOST" | "STANDBY" | "CALIBRATING"
+      leftEyeState: "OPEN",         // "OPEN" | "CLOSING" | "CLOSED" | "BLINKING"
+      rightEyeState: "OPEN",        // "OPEN" | "CLOSING" | "CLOSED" | "BLINKING"
+      leftEAR: 0.28,
+      rightEAR: 0.28,
+      avgEAR: 0.28,
+      closureDurationSec: 0.0,
+      blinkCount: 0,
+      blinkRate: 0,                 // blinks per minute
+      drowsinessRisk: "NORMAL",     // "NORMAL" | "WARNING" | "HIGH_RISK"
+      isBlinkingLive: false,
+      confidence: 0,
+      fps: 0
+    };
+
     // Subscribed listeners
     this.subscribers = new Set();
+  }
+
+  loadSettings() {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_SETTINGS);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return { ...DEFAULT_SETTINGS, ...parsed };
+      }
+    } catch (e) {
+      console.warn("Error loading detection settings:", e);
+    }
+    return { ...DEFAULT_SETTINGS };
+  }
+
+  saveSettings(newSettings) {
+    this.settings = { ...this.settings, ...newSettings };
+    try {
+      localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(this.settings));
+    } catch (e) {
+      console.warn("Error persisting settings:", e);
+    }
+    this.notify();
+  }
+
+  resetSettings() {
+    this.settings = { ...DEFAULT_SETTINGS };
+    try {
+      localStorage.removeItem(STORAGE_KEY_SETTINGS);
+    } catch (e) {
+      console.warn("Error resetting settings:", e);
+    }
+    this.notify();
   }
 
   subscribe(callback) {
@@ -79,6 +143,21 @@ class StateManager {
     this.sessionStartTime = Date.now();
     this.sessionDurationSec = 0;
     this.drowsinessEventsCount = 0;
+
+    // Reset session telemetry
+    this.telemetry.faceDetected = false;
+    this.telemetry.eyeTrackingStatus = "LOST";
+    this.telemetry.leftEyeState = "OPEN";
+    this.telemetry.rightEyeState = "OPEN";
+    this.telemetry.leftEAR = 0.28;
+    this.telemetry.rightEAR = 0.28;
+    this.telemetry.avgEAR = 0.28;
+    this.telemetry.closureDurationSec = 0.0;
+    this.telemetry.blinkCount = 0;
+    this.telemetry.blinkRate = 0;
+    this.telemetry.drowsinessRisk = "NORMAL";
+    this.telemetry.isBlinkingLive = false;
+
     this.setStatus("NO_FACE");
   }
 
@@ -100,6 +179,7 @@ class StateManager {
       timestamp: this.sessionStartTime || Date.now(),
       durationSeconds: this.sessionDurationSec,
       drowsinessEventsCount: this.drowsinessEventsCount,
+      blinkCount: this.telemetry.blinkCount,
       resultLabel
     };
 
@@ -113,6 +193,7 @@ class StateManager {
     this.status = "IDLE";
     this.statusText = "";
     this.activeWarning = false;
+    this.telemetry.eyeTrackingStatus = "STANDBY";
     this.currentView = "summary";
     this.notify();
 
